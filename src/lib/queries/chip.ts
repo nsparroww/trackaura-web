@@ -1,10 +1,14 @@
 import { createClient } from '@/lib/supabase/server';
 import { cleanChipSlug } from '@/lib/chip-slug';
 import { resolveRetailer, type RetailerKey } from '@/lib/retailers';
+import {
+  fetchChipAttributes,
+  type ChipAttribute,
+} from '@/lib/queries/chip-attributes';
 
-/* ──────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────
    Types
-   ────────────────────────────────────────────────────────────── */
+   ───────────────────────────────────────────────────────────────────── */
 
 export type ChipListing = {
   id: string;
@@ -45,6 +49,7 @@ export type ChipViewModel = {
   msrpCurrency: string | null;
   imageUrl: string | null;
   description: string | null;
+  attributes: ChipAttribute[];
   boards: ChipBoard[];
   stats: {
     boardCount: number;
@@ -58,9 +63,9 @@ export type ChipViewModel = {
   lastRefreshed: string;
 };
 
-/* ──────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────
    Helpers
-   ────────────────────────────────────────────────────────────── */
+   ───────────────────────────────────────────────────────────────────── */
 
 // is_in_stock is NULL on 100% of price_observations rows today (Architecture
 // Bible Draft 17 §11 risk 20). Until the observations writer is patched,
@@ -69,23 +74,28 @@ export type ChipViewModel = {
 const FRESHNESS_DAYS = 7;
 const OBSERVATION_LIMIT = 10_000;
 
-/* ──────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────
    Main query
-   ────────────────────────────────────────────────────────────── */
+   ───────────────────────────────────────────────────────────────────── */
 
 export async function getChipViewModel(
   entityId: string,
 ): Promise<ChipViewModel | null> {
   const supabase = await createClient();
 
-  // 1. Chip entity itself.
-  const { data: chip, error: chipErr } = await supabase
-    .from('canonical_entities')
-    .select(
-      'id, slug, canonical_name, display_name, brand, release_date, msrp_cad, msrp_currency, image_primary_url, description_md, entity_type',
-    )
-    .eq('id', entityId)
-    .maybeSingle();
+  // 1. Chip entity itself + attributes (parallelized).
+  const [chipRes, attributes] = await Promise.all([
+    supabase
+      .from('canonical_entities')
+      .select(
+        'id, slug, canonical_name, display_name, brand, release_date, msrp_cad, msrp_currency, image_primary_url, description_md, entity_type',
+      )
+      .eq('id', entityId)
+      .maybeSingle(),
+    fetchChipAttributes(entityId),
+  ]);
+
+  const { data: chip, error: chipErr } = chipRes;
 
   if (chipErr) {
     console.error('[chip] canonical_entities query failed:', chipErr);
@@ -255,7 +265,7 @@ export async function getChipViewModel(
   );
 
   console.log(
-    `[chip] entity=${entityId} boards=${chipBoards.length} listings=${allListings.length} in_stock=${inStockListings.length} retailers=${retailerSet.size}`,
+    `[chip] entity=${entityId} boards=${chipBoards.length} listings=${allListings.length} in_stock=${inStockListings.length} retailers=${retailerSet.size} attrs=${attributes.length}`,
   );
 
   return {
@@ -269,6 +279,7 @@ export async function getChipViewModel(
     msrpCurrency: chip.msrp_currency,
     imageUrl: chip.image_primary_url,
     description: chip.description_md,
+    attributes,
     boards: chipBoards,
     stats: {
       boardCount: chipBoards.length,

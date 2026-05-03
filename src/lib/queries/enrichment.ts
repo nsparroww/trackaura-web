@@ -1,6 +1,10 @@
 import { createClient } from '@/lib/supabase/server';
+import {
+  formatAttributes,
+  type ChipAttribute,
+} from '@/lib/queries/chip-attributes';
 
-/* ────────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────
    Chip-parent enrichment.
 
    Joins from old-schema product page (canonical_products / products /
@@ -10,14 +14,14 @@ import { createClient } from '@/lib/supabase/server';
 
    Returns null whenever any link in the chain breaks. The product page
    degrades gracefully — chip section just doesn't render.
-   ──────────────────────────────────────────────────────────────────────── */
 
-export type ChipParentAttribute = {
-  key: string;
-  label: string;
-  value: string;
-  group: string;
-};
+   Attribute config (label/group/format) lives in chip-attributes.ts
+   so the chip page and the legacy product page render identically.
+   ───────────────────────────────────────────────────────────────────── */
+
+// Preserved for backward compatibility — anything importing
+// ChipParentAttribute keeps working.
+export type ChipParentAttribute = ChipAttribute;
 
 export type ChipParentSibling = {
   // entityId is the new-schema board id; legacySlug is the OLD
@@ -41,92 +45,6 @@ export type ChipParentData = {
   siblings: ChipParentSibling[];
   totalBoardCount: number;
 };
-
-/* ──── Attribute display config ──── */
-
-type AttrCfg = {
-  label: string;
-  group: string;
-  format?: (v: string, num: number | null) => string;
-};
-
-const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
-  architecture: { label: 'Architecture', group: 'Chip' },
-  generation: { label: 'Generation', group: 'Chip' },
-  chip_codename: { label: 'Codename', group: 'Chip' },
-  bus_interface: { label: 'Bus Interface', group: 'Chip' },
-  process_size_nm: {
-    label: 'Process',
-    group: 'Manufacturing',
-    format: (v) => `${v} nm`,
-  },
-  tdp_w: {
-    label: 'TDP',
-    group: 'Power',
-    format: (v) => `${v} W`,
-  },
-  base_clock_mhz: {
-    label: 'Base Clock',
-    group: 'Performance',
-    format: (_v, num) => (num != null ? `${Math.round(num)} MHz` : '—'),
-  },
-  boost_clock_mhz: {
-    label: 'Boost Clock',
-    group: 'Performance',
-    format: (_v, num) => (num != null ? `${Math.round(num)} MHz` : '—'),
-  },
-  memory_size_gb: {
-    label: 'Memory Size',
-    group: 'Memory',
-    format: (_v, num) => {
-      if (num == null) return '—';
-      // Sub-1 GB GPUs (legacy workstation cards) shouldn't display as "0 GB"
-      if (num < 1) return `${(num * 1024).toFixed(0)} MB`;
-      return `${num.toFixed(num % 1 === 0 ? 0 : 1)} GB`;
-    },
-  },
-  memory_type: { label: 'Memory Type', group: 'Memory' },
-  memory_bus_bits: {
-    label: 'Memory Bus',
-    group: 'Memory',
-    format: (v) => `${v}-bit`,
-  },
-};
-
-const GROUP_ORDER = ['Chip', 'Performance', 'Memory', 'Power', 'Manufacturing'];
-
-function formatAttributes(
-  rows: Array<{
-    attribute_key: string;
-    attribute_value: string | null;
-    attribute_value_num: number | string | null;
-  }>,
-): ChipParentAttribute[] {
-  const out: ChipParentAttribute[] = [];
-  for (const r of rows) {
-    const cfg = ATTRIBUTE_CONFIG[r.attribute_key];
-    if (!cfg) continue;
-    if (!r.attribute_value) continue;
-    const num =
-      r.attribute_value_num != null ? Number(r.attribute_value_num) : null;
-    const value = cfg.format
-      ? cfg.format(r.attribute_value, Number.isFinite(num) ? num : null)
-      : r.attribute_value;
-    out.push({
-      key: r.attribute_key,
-      label: cfg.label,
-      value,
-      group: cfg.group,
-    });
-  }
-  out.sort((a, b) => {
-    const ga = GROUP_ORDER.indexOf(a.group);
-    const gb = GROUP_ORDER.indexOf(b.group);
-    if (ga !== gb) return (ga === -1 ? 99 : ga) - (gb === -1 ? 99 : gb);
-    return a.label.localeCompare(b.label);
-  });
-  return out;
-}
 
 /* ──── Main entry ──── */
 

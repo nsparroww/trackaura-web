@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { ChipViewModel } from '@/lib/queries/chip';
 import { BoardTable } from './BoardTable';
+import ChipSpecs from './ChipSpecs';
+
 type Props = { chip: ChipViewModel };
 
 const MONTH_ABBREV = [
@@ -120,6 +122,10 @@ export default function ChipPage({ chip }: Props) {
           highlight={hasCurrentPrices}
         />
       </section>
+
+      {/* Specs — sourced from entity_attributes. Self-renders nothing
+          when chip has no attributes (the 2 unmatched chips). */}
+      <ChipSpecs attributes={chip.attributes} />
 
       {/* No-current-prices callout. The catalog has the chip and its
           boards, but every observation is older than the freshness
