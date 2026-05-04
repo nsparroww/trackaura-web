@@ -10,7 +10,7 @@ import {
 } from '@/lib/entity-config';
 import { cleanEntitySlug } from '@/lib/entity-slug-helpers';
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────────
    entity.ts
 
    Generic getEntityViewModel(entityId, expectedType). Replaces the
@@ -20,16 +20,20 @@ import { cleanEntitySlug } from '@/lib/entity-slug-helpers';
      - Branch entities (childEntityType set): fetch children + their
        listings, no own listings.
      - Leaf entities (childEntityType null): fetch own listings, no
-       children.
+       children. ALSO fetch parent's attributes for display ("inherited
+       specs" — Phase-0.5 polish, 2026-05-04). The dbgpu-backfilled
+       attributes (architecture, clocks, memory, TDP, process node) all
+       live on the gpu_chip parent; without inheritance, board pages
+       render an empty Specifications section.
      - Stats roll up whichever set applies.
      - Breadcrumbs are walked server-side via parent_entity_id.
 
    Live chip page is NOT touched by this module. Step 3 of the design
    doc (cutover) is the only point at which chip/[slug]/page.tsx swaps
    to using this.
-   ───────────────────────────────────────────────────────────────────── */
+   ─────────────────────────────────────────────────────────────────────────── */
 
-/* Types ─────────────────────────────────────────────────────────── */
+/* Types ─────────────────────────────────────────────────────────────────── */
 
 export type EntityListing = {
   id: string;
@@ -98,7 +102,15 @@ export type EntityViewModel = {
   description: string | null;
 
   breadcrumbs: BreadcrumbItem[];
+  /** Attributes fetched directly from this entity's entity_attributes rows. */
   attributes: EntityAttribute[];
+  /** Attributes inherited from this entity's parent (leaves only). De-duplicated
+      against `attributes` — keys appearing in both are dropped from this list,
+      so the leaf's own attribute wins. Empty for branches and orphan leaves. */
+  inheritedAttributes: EntityAttribute[];
+  /** Display name of the parent entity attributes were inherited from, or null
+      when no inheritance is in effect. Used as the SpecsBlock heading. */
+  inheritedFromName: string | null;
 
   /** Populated only for branch entities. Leaves: []. */
   children: EntityChild[];
@@ -109,7 +121,7 @@ export type EntityViewModel = {
   lastRefreshed: string;
 };
 
-/* Constants ─────────────────────────────────────────────────────── */
+/* Constants ─────────────────────────────────────────────────────────────── */
 
 /** is_in_stock is NULL on 100% of price_observations rows (Bible Risk #19).
     Until the writer is patched, "current price" = most recent observation
@@ -122,7 +134,7 @@ const OBSERVATION_LIMIT = 10_000;
     levels (TCG: card → printing → grading); 5 leaves headroom. */
 const MAX_BREADCRUMB_DEPTH = 5;
 
-/* Internal types ────────────────────────────────────────────────── */
+/* Internal types ────────────────────────────────────────────────────────── */
 
 type ListingRow = {
   id: string;
@@ -154,7 +166,7 @@ type WalkNode = {
    The existing chip.ts also leaves this implicit. */
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
-/* Main ───────────────────────────────────────────────────────────── */
+/* Main ──────────────────────────────────────────────────────────────────── */
 
 export async function getEntityViewModel(
   entityId: string,
@@ -163,7 +175,7 @@ export async function getEntityViewModel(
   const cfg = getEntityTypeConfig(expectedType);
   const supabase = await createClient();
 
-  /* 1. Entity row + attributes in parallel. */
+  /* 1. Entity row + own attributes in parallel. */
   const [entityRes, attributes] = await Promise.all([
     supabase
       .from('canonical_entities')
@@ -203,21 +215,47 @@ export async function getEntityViewModel(
     ownListings = await fetchOwnListings(supabase, String(entity.id));
   }
 
-  /* 3. Walk parent chain for breadcrumbs. */
-  const breadcrumbs = await buildBreadcrumbs(supabase, {
-    id: String(entity.id),
-    entityType: entity.entity_type as EntityType,
-    slug: entity.slug,
-    displayName: entity.display_name ?? entity.canonical_name,
-    parentEntityId:
-      entity.parent_entity_id != null ? String(entity.parent_entity_id) : null,
-  });
+  /* 3. Breadcrumbs + parent attributes (leaves only) in parallel.
+        Both depend only on entity.parent_entity_id, so they parallelize
+        cleanly. Branches and orphan leaves resolve parent attrs as []. */
+  const isLeafWithParent =
+    !cfg.childEntityType && entity.parent_entity_id != null;
+  const parentId = isLeafWithParent ? String(entity.parent_entity_id) : null;
 
-  /* 4. Stats — roll up from whichever set applies. */
+  const [breadcrumbs, rawInherited] = await Promise.all([
+    buildBreadcrumbs(supabase, {
+      id: String(entity.id),
+      entityType: entity.entity_type as EntityType,
+      slug: entity.slug,
+      displayName: entity.display_name ?? entity.canonical_name,
+      parentEntityId:
+        entity.parent_entity_id != null ? String(entity.parent_entity_id) : null,
+    }),
+    parentId
+      ? fetchEntityAttributes(parentId)
+      : Promise.resolve([] as EntityAttribute[]),
+  ]);
+
+  /* 4. De-duplicate inherited against own keys (leaf's own attribute wins
+        if both exist; e.g. a board with a factory boost_clock_mhz overrides
+        the chip's reference clock). Then resolve the parent's display name
+        from the breadcrumb chain — the immediate parent is the second-to-
+        last breadcrumb item ([Home, Category, ...ancestors..., Self]). */
+  const ownKeys = new Set(attributes.map((a) => a.key));
+  const inheritedAttributes = rawInherited.filter((a) => !ownKeys.has(a.key));
+
+  const inheritedFromName =
+    isLeafWithParent &&
+    inheritedAttributes.length > 0 &&
+    breadcrumbs.length >= 2
+      ? breadcrumbs[breadcrumbs.length - 2].label
+      : null;
+
+  /* 5. Stats — roll up from whichever set applies. */
   const stats = computeStats({ children, ownListings });
 
   console.log(
-    `[entity] id=${entityId} type=${expectedType} children=${children.length} listings=${ownListings.length} attrs=${attributes.length}`,
+    `[entity] id=${entityId} type=${expectedType} children=${children.length} listings=${ownListings.length} attrs=${attributes.length} inherited=${inheritedAttributes.length}`,
   );
 
   return {
@@ -234,6 +272,8 @@ export async function getEntityViewModel(
     description: entity.description_md,
     breadcrumbs,
     attributes,
+    inheritedAttributes,
+    inheritedFromName,
     children,
     listings: ownListings,
     stats,
@@ -241,7 +281,7 @@ export async function getEntityViewModel(
   };
 }
 
-/* Internals ─────────────────────────────────────────────────────── */
+/* Internals ─────────────────────────────────────────────────────────────── */
 
 async function fetchChildren(
   supabase: SupabaseClient,

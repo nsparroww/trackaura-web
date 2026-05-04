@@ -7,7 +7,7 @@ import EntityListings from './EntityListings';
 
 type Props = { entity: EntityViewModel };
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────────
    EntityPage
 
    Generic render layer for any canonical_entities row. Replaces ChipPage
@@ -37,7 +37,13 @@ type Props = { entity: EntityViewModel };
    Step-3 (2026-05-04): entity.name + cfg.category thread down to
    EntityListings/EntityChildren so the GA4 ClickTracker has the right
    event_label and product_category dimensions per click.
-   ───────────────────────────────────────────────────────────────────── */
+
+   Phase-0.5 polish (2026-05-04): EntitySpecs now receives
+   inheritedAttributes + inheritedFromName so leaf pages (boards) can
+   render parent-chip specs as a second "Inherited from X" block. View
+   model populates these only for leaves with parents — branches and
+   orphan leaves resolve them as []/null.
+   ─────────────────────────────────────────────────────────────────────────── */
 
 const MONTH_ABBREV = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -155,9 +161,14 @@ export default function EntityPage({ entity }: Props) {
         />
       </section>
 
-      {/* Specs — sourced from entity_attributes. Self-renders nothing
-          when entity has no attributes. */}
-      <EntitySpecs attributes={entity.attributes} />
+      {/* Specs — own attributes plus inherited attributes from parent
+          (leaves with parent only). Self-renders nothing when both lists
+          are empty. */}
+      <EntitySpecs
+        attributes={entity.attributes}
+        inheritedAttributes={entity.inheritedAttributes}
+        inheritedFromName={entity.inheritedFromName}
+      />
 
       {/* No-current-prices callout. Same condition as ChipPage but
           generalized: any active listing exists yet none have a current
