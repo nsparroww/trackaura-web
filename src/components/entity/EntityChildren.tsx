@@ -1,7 +1,12 @@
 import Link from 'next/link';
+import ClickTracker from '@/components/ClickTracker';
+import { ga4EventForRetailer } from '@/lib/affiliate';
 import type { EntityChild } from '@/lib/queries/entity';
 
-type Props = { items: EntityChild[] };
+type Props = {
+  items: EntityChild[];
+  entityCategory: string;
+};
 
 /* ─────────────────────────────────────────────────────────────────────
    EntityChildren
@@ -21,6 +26,13 @@ type Props = { items: EntityChild[] };
    Truncation depth (6) is a load-time guess. Most chips have 1-12
    boards; chips with 30+ boards (rare AIB-heavy SKUs) push the page
    too long without truncation.
+
+   Step-3 (2026-05-04): each row's outbound View link now goes through
+   <ClickTracker> for GA4. The label is the *child* entity name (each
+   row represents a different board), not the parent chip — that's
+   what answers "which board did the user click through on" in the
+   GA4 report. Category threads through unchanged because all children
+   under a parent share the parent's category.
    ───────────────────────────────────────────────────────────────────── */
 
 const VISIBLE_LISTINGS = 6;
@@ -46,7 +58,7 @@ function formatRelative(iso: string | null): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
-export default function EntityChildren({ items }: Props) {
+export default function EntityChildren({ items, entityCategory }: Props) {
   return (
     <div className="space-y-3">
       {items.map((child) => {
@@ -69,7 +81,10 @@ export default function EntityChildren({ items }: Props) {
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
                 {child.lowestPrice != null ? (
                   <span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-                    {formatPrice(child.lowestPrice, child.lowestPriceCurrency ?? 'CAD')}
+                    {formatPrice(
+                      child.lowestPrice,
+                      child.lowestPriceCurrency ?? 'CAD',
+                    )}
                   </span>
                 ) : (
                   <span className="text-zinc-500">no current price</span>
@@ -108,14 +123,17 @@ export default function EntityChildren({ items }: Props) {
                         </span>
                       )}
                       {l.url && (
-                        <a
+                        <ClickTracker
                           href={l.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          event={ga4EventForRetailer(l.retailerName)}
+                          label={child.name}
+                          retailer={l.retailerName}
+                          category={entityCategory}
+                          price={l.currentPrice ?? 0}
                           className="text-xs text-blue-600 hover:underline dark:text-blue-400"
                         >
                           View →
-                        </a>
+                        </ClickTracker>
                       )}
                     </span>
                   </li>

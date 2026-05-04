@@ -25,6 +25,10 @@ type Props = { entity: EntityViewModel };
 
    Provenance text comes from CategoryConfig — Phase 1+ collectibles
    surface "Catalog data from Scryfall" etc. without touching this file.
+
+   Step-3 (2026-05-04): entity.name + cfg.category thread down to
+   EntityListings/EntityChildren so the GA4 ClickTracker has the right
+   event_label and product_category dimensions per click.
    ───────────────────────────────────────────────────────────────────── */
 
 const MONTH_ABBREV = [
@@ -165,7 +169,10 @@ export default function EntityPage({ entity }: Props) {
         entity.children.length > 0 ? (
           <section>
             <h2 className="mb-4 text-lg font-semibold">{childPlural}</h2>
-            <EntityChildren items={entity.children} />
+            <EntityChildren
+              items={entity.children}
+              entityCategory={cfg.category}
+            />
           </section>
         ) : (
           <EmptyState
@@ -176,7 +183,11 @@ export default function EntityPage({ entity }: Props) {
       ) : entity.listings.length > 0 ? (
         <section>
           <h2 className="mb-4 text-lg font-semibold">Listings</h2>
-          <EntityListings listings={entity.listings} />
+          <EntityListings
+            listings={entity.listings}
+            entityName={entity.name}
+            entityCategory={cfg.category}
+          />
         </section>
       ) : (
         <EmptyState

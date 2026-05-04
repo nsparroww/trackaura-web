@@ -1,6 +1,12 @@
+import ClickTracker from '@/components/ClickTracker';
+import { ga4EventForRetailer } from '@/lib/affiliate';
 import type { EntityListing } from '@/lib/queries/entity';
 
-type Props = { listings: EntityListing[] };
+type Props = {
+  listings: EntityListing[];
+  entityName: string;
+  entityCategory: string;
+};
 
 /* ─────────────────────────────────────────────────────────────────────
    EntityListings
@@ -12,12 +18,17 @@ type Props = { listings: EntityListing[] };
    modeled as leaves. (CPUs may end up as branches under a chip-family
    pattern — that's a Step-4 decision.)
 
-   No GA4 outbound_click yet. ChipPage's BoardTable presumably wires it;
-   re-introducing it here means a 'use client' OutboundLink shim, which
-   is structurally cleaner than threading client components through
-   server-component lists. Deferred to the cutover so existing chip-page
-   click telemetry isn't disrupted by Step-2 changes. (Tracked as
-   Bible §10 tail.)
+   Step-3 (2026-05-04): outbound View link wrapped in <ClickTracker>
+   so retailer clicks fire GA4 events. ClickTracker is a server-safe
+   `'use client'` boundary that handles gtag + nofollow/sponsored rel.
+   ga4EventForRetailer() picks `affiliate_click` for Newegg and
+   `retailer_click` for everyone else. Props (entityName,
+   entityCategory) thread down from EntityPage.
+
+   Price defaults to 0 when there is no current observation; the
+   downstream View link is still rendered (l.url exists) and the click
+   is still trackable, but the GA4 `price` dimension is 0 to signal
+   "no fresh price at click time".
    ───────────────────────────────────────────────────────────────────── */
 
 function formatPrice(n: number, currency: string = 'CAD'): string {
@@ -41,16 +52,21 @@ function formatRelative(iso: string | null): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
-export default function EntityListings({ listings }: Props) {
+export default function EntityListings({
+  listings,
+  entityName,
+  entityCategory,
+}: Props) {
   return (
     <div className="overflow-hidden rounded border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
       <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
         {listings.map((l) => {
-          const freshnessLabel = l.currentPrice != null
-            ? l.lastObservedAt
-              ? `seen ${formatRelative(l.lastObservedAt)}`
-              : 'current'
-            : `last seen ${formatRelative(l.lastSeen)}`;
+          const freshnessLabel =
+            l.currentPrice != null
+              ? l.lastObservedAt
+                ? `seen ${formatRelative(l.lastObservedAt)}`
+                : 'current'
+              : `last seen ${formatRelative(l.lastSeen)}`;
 
           return (
             <li
@@ -78,14 +94,17 @@ export default function EntityListings({ listings }: Props) {
                   <span className="text-sm text-zinc-500">no current price</span>
                 )}
                 {l.url && (
-                  <a
+                  <ClickTracker
                     href={l.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    event={ga4EventForRetailer(l.retailerName)}
+                    label={entityName}
+                    retailer={l.retailerName}
+                    category={entityCategory}
+                    price={l.currentPrice ?? 0}
                     className="text-sm text-blue-600 hover:underline dark:text-blue-400"
                   >
                     View →
-                  </a>
+                  </ClickTracker>
                 )}
               </div>
             </li>
