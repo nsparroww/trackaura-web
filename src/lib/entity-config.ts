@@ -15,6 +15,15 @@
      - childEntityType = 'foo' → branch (children of that type, no own listings)
      - Brand prefixes apply only to slug-form normalization for clean URLs.
        Boards/CPUs have no brand prefix to strip — URL = DB slug.
+
+   Step-2 additions (2026-05-04):
+     - pluralLabel: drives section headings, empty states, stats tile
+       labels in EntityPage. Singular `label` was insufficient — "GPU
+       Board"/"Boards" need different forms.
+     - CategoryConfig.provenance: the trust-statement footer text. Lives
+       per-category because catalog source differs by vertical (Phase 1+
+       Scryfall, BrickLink, etc). Avoids inlining vertical-specific text
+       into the generic EntityPage.
    ───────────────────────────────────────────────────────────────────── */
 
 import { BRAND_PREFIXES as GPU_CHIP_BRAND_PREFIXES } from './chip-slug-helpers';
@@ -30,6 +39,8 @@ export type EntityTypeConfig = {
   routePrefix: string;
   /** Singular human label for breadcrumbs / metadata fallbacks. */
   label: string;
+  /** Plural human label for section headings, empty states, stat tiles. */
+  pluralLabel: string;
   /** entity_type of children, or null if this entity is a leaf. */
   childEntityType: EntityType | null;
   /** entity_type of parent, or null if top-of-tree. */
@@ -44,6 +55,7 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
   gpu_chip: {
     routePrefix: '/chip',
     label: 'Graphics Card',
+    pluralLabel: 'Graphics Cards',
     childEntityType: 'gpus',
     parentEntityType: null,
     category: 'gpus',
@@ -52,6 +64,7 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
   gpus: {
     routePrefix: '/board',
     label: 'GPU Board',
+    pluralLabel: 'Boards',
     childEntityType: null,
     parentEntityType: 'gpu_chip',
     category: 'gpus',
@@ -64,10 +77,18 @@ export type CategoryConfig = {
   label: string;
   /** Top entity_type of the tree under this category. */
   topEntityType: EntityType;
+  /** Provenance line for the entity-page footer. Per-category since
+      catalog source differs by vertical. */
+  provenance: string;
 };
 
 export const CATEGORIES: Record<CategorySlug, CategoryConfig> = {
-  gpus: { label: 'Graphics Cards', topEntityType: 'gpu_chip' },
+  gpus: {
+    label: 'Graphics Cards',
+    topEntityType: 'gpu_chip',
+    provenance:
+      'Catalog data from TechPowerUp (vendored). Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
+  },
 };
 
 /** Type guard for narrowing arbitrary strings (e.g. DB column reads). */
