@@ -2,13 +2,19 @@ import { createClient } from '@/lib/supabase/server';
 import { cleanEntitySlug } from './entity-slug-helpers';
 import { getEntityTypeConfig, type EntityType } from './entity-config';
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────────
    entity-slug.ts
 
    Generic entity-slug resolution. Mirrors the chip-slug.ts pattern but
-   is parameterized over entity_type. Same algorithm:
+   is parameterized over entity_type. Algorithm:
 
      1. Try the slug exactly as requested.
+     1.5. Short-slug alias check (Phase-0.5 polish, 2026-05-04).
+          For high-traffic short queries that don't map 1:1 to DB slugs
+          (e.g. 'rtx-3060' → 'rtx-3060-12-gb'), the entity_type config
+          declares an alias map. Hit → recursively resolve the target
+          and return needsRedirect=true so the route handler 308s to
+          the canonical clean form.
      2. If the entity_type has registered brand prefixes, try each
         prefix prepended in a single batched query.
      3. Flag whether a redirect to the clean form is needed.
@@ -22,7 +28,7 @@ import { getEntityTypeConfig, type EntityType } from './entity-config';
    This module imports next/headers via the Supabase server client. Do
    NOT import it from client components. Client components should reach
    for entity-slug-helpers.ts directly.
-   ───────────────────────────────────────────────────────────────────── */
+   ─────────────────────────────────────────────────────────────────────────── */
 
 export type EntitySlugResolution = {
   /** Stringified bigint id of the canonical_entities row, or null. */
@@ -64,6 +70,26 @@ export async function resolveEntitySlug(
       cleanSlug: cleaned,
       needsRedirect: cleaned !== requestedSlug,
     };
+  }
+
+  /* 1.5. Short-slug alias → resolve target and force redirect.
+     Recursion is bounded: alias targets must themselves resolve via
+     exact-match or brand-prefix fallback (validated at config time by
+     manual review; if a typo creeps in, the inner resolveEntitySlug
+     returns null and we log + fall through). */
+  const aliasTarget = cfg.shortSlugAliases?.[requestedSlug];
+  if (aliasTarget) {
+    const resolved = await resolveEntitySlug(aliasTarget, entityType);
+    if (resolved.entityId != null) {
+      return {
+        entityId: resolved.entityId,
+        cleanSlug: aliasTarget,
+        needsRedirect: true,
+      };
+    }
+    console.error(
+      `[entity-slug] short-slug alias '${requestedSlug}' → '${aliasTarget}' has no entity (type=${entityType})`,
+    );
   }
 
   /* 2. No prefixes registered → genuine miss. */

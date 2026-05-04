@@ -1,4 +1,4 @@
-/* ─────────────────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────────
    entity-config.ts
 
    Single source of truth for entity-type routing. Adding a new vertical
@@ -24,7 +24,14 @@
        per-category because catalog source differs by vertical (Phase 1+
        Scryfall, BrickLink, etc). Avoids inlining vertical-specific text
        into the generic EntityPage.
-   ───────────────────────────────────────────────────────────────────── */
+
+   Phase-0.5 polish addition (2026-05-04):
+     - shortSlugAliases: maps user-typed short slugs to canonical clean
+       slugs for 308 redirect. Solves the case where DB slug carries a
+       disambiguating suffix that natural search queries don't include
+       (e.g. /chip/rtx-3060 → /chip/rtx-3060-12-gb). Keeps DB slug
+       authoritative; frontend handles the alias.
+   ─────────────────────────────────────────────────────────────────────────── */
 
 import { BRAND_PREFIXES as GPU_CHIP_BRAND_PREFIXES } from './chip-slug-helpers';
 
@@ -49,6 +56,13 @@ export type EntityTypeConfig = {
   category: CategorySlug;
   /** Brand prefixes stripped from slug for clean URLs. Empty = no stripping. */
   cleanSlugBrandPrefixes: readonly string[];
+  /** Short-slug aliases that 308 to a canonical clean slug. Optional;
+      omit when no aliases are needed. Map keys are user-typed slugs;
+      values are the canonical clean slugs to redirect to. The resolver
+      will re-resolve the target slug to find its entity_id, so values
+      must themselves resolve via either exact-match or brand-prefix
+      fallback. */
+  shortSlugAliases?: Readonly<Record<string, string>>;
 };
 
 export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
@@ -60,6 +74,14 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     parentEntityType: null,
     category: 'gpus',
     cleanSlugBrandPrefixes: GPU_CHIP_BRAND_PREFIXES,
+    shortSlugAliases: {
+      // High-traffic short queries that don't map 1:1 to DB slugs.
+      // 'rtx-3060' → DB row nvidia-geforce-rtx-3060-12-gb (clean form
+      // rtx-3060-12-gb) — canonical RTX 3060 is 12 GB; DB slug carries
+      // the suffix to disambiguate from the rare 8 GB GA104 variant
+      // (canonical_entities id 18522).
+      'rtx-3060': 'rtx-3060-12-gb',
+    },
   },
   gpus: {
     routePrefix: '/board',
