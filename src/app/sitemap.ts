@@ -8,10 +8,11 @@ const URLS_PER_CHILD = 40_000;
 /**
  * Sitemap index at /sitemap.xml.
  *
- * Points to the two child sitemaps. URLs MUST match Next.js's actual
+ * Points to the three child sitemaps. URLs MUST match Next.js's actual
  * sitemap routing convention, not the natural-looking shorter form:
  *
  *   src/app/static-sitemap/sitemap.ts        → /static-sitemap/sitemap.xml
+ *   src/app/entities-sitemap/sitemap.ts      → /entities-sitemap/sitemap.xml
  *   src/app/products-sitemap/sitemap.ts      → /products-sitemap/sitemap/<id>.xml
  *                                              (the /sitemap/ segment is added
  *                                               by Next when generateSitemaps()
@@ -21,6 +22,12 @@ const URLS_PER_CHILD = 40_000;
  * /products-sitemap/<id>.xml. Both 404'd silently. Google fetched the
  * index, followed the URLs, hit dead routes, and never crawled product
  * pages via the sitemap path. Fixed 2026-05-02.
+ *
+ * Step-3d (2026-05-04): added entities-sitemap for canonical_entities
+ * (chips and boards today, future CPUs/monitors/etc auto-included as
+ * their entity_type registers in entity-config.ts). The legacy
+ * products-sitemap (canonical_products → /p/[slug]) stays in parallel
+ * during the v0 → canonical_entities migration.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const supabase = await createClient();
@@ -37,6 +44,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return [
     {
       url: `${base}/static-sitemap/sitemap.xml`,
+      lastModified: new Date(),
+    },
+    {
+      url: `${base}/entities-sitemap/sitemap.xml`,
       lastModified: new Date(),
     },
     ...Array.from({ length: chunkCount }, (_, i) => ({

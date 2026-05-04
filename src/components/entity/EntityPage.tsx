@@ -11,7 +11,8 @@ type Props = { entity: EntityViewModel };
    EntityPage
 
    Generic render layer for any canonical_entities row. Replaces ChipPage
-   at Step 3 cutover. Today (Step 2) it powers /board/[slug] only.
+   at Step 3 cutover. Today (Step 3b) it powers /chip/[slug] and
+   /board/[slug].
 
    Branch vs leaf: keyed off `cfg.childEntityType != null`, NOT
    `entity.children.length`. A branch with zero children is still a
@@ -25,6 +26,13 @@ type Props = { entity: EntityViewModel };
 
    Provenance text comes from CategoryConfig — Phase 1+ collectibles
    surface "Catalog data from Scryfall" etc. without touching this file.
+
+   Step-3c (2026-05-04): amber-callout and empty-state copy no longer
+   include `cfg.label.toLowerCase()`. The lowercase output for
+   `gpus.label = "GPU Board"` was rendering "this gpu board", which
+   reads as a typo. Generic phrasing is clearer for every vertical
+   (future CPUs, monitors, MTG cards, etc.) and avoids needing a
+   per-type `lowerLabel` field on EntityTypeConfig.
 
    Step-3 (2026-05-04): entity.name + cfg.category thread down to
    EntityListings/EntityChildren so the GA4 ClickTracker has the right
@@ -158,8 +166,8 @@ export default function EntityPage({ entity }: Props) {
         <div className="mb-8 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-200">
           <p className="font-medium">No current observations.</p>
           <p className="mt-1">
-            Every listing for this {cfg.label.toLowerCase()} is older than 7
-            days. The catalog is being re-scraped.
+            Every active listing here is older than 7 days. The catalog is
+            being re-scraped.
           </p>
         </div>
       )}
@@ -192,7 +200,7 @@ export default function EntityPage({ entity }: Props) {
       ) : (
         <EmptyState
           heading="No active listings."
-          body={`No Canadian retailer is currently tracking this ${cfg.label.toLowerCase()}.`}
+          body="No Canadian retailers are tracking this yet."
         />
       )}
 
