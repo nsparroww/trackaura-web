@@ -18,6 +18,15 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "**.cloudfront.net" },
       { protocol: "https", hostname: "www.vuugo.com" },
       { protocol: "https", hostname: "vuugo.com" },
+      // TechPowerUp — chip imagery via dbgpu (canonical_entities.image_primary_url)
+      // Path-prefix locked so only the gpu-specs image folder is reachable through
+      // our optimizer. EntityPage uses unoptimized=true today since these are
+      // already small (~30KB JPEGs); the allowlist still applies as a safety net.
+      {
+        protocol: "https",
+        hostname: "www.techpowerup.com",
+        pathname: "/gpu-specs/images-new/**",
+      },
     ],
   },
   async redirects() {

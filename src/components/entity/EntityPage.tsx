@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import { CATEGORIES, ENTITY_TYPES } from '@/lib/entity-config';
 import type { EntityViewModel } from '@/lib/queries/entity';
 import EntityBreadcrumbs from './EntityBreadcrumbs';
@@ -7,7 +8,7 @@ import EntityListings from './EntityListings';
 
 type Props = { entity: EntityViewModel };
 
-/* ───────────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────
    EntityPage
 
    Generic render layer for any canonical_entities row. Replaces ChipPage
@@ -43,7 +44,16 @@ type Props = { entity: EntityViewModel };
    render parent-chip specs as a second "Inherited from X" block. View
    model populates these only for leaves with parents — branches and
    orphan leaves resolve them as []/null.
-   ─────────────────────────────────────────────────────────────────────────── */
+
+   Phase-0.5 polish (2026-05-05): Hero image now renders when
+   entity.imageUrl is present. Chip imagery landed at 96.4% via dbgpu
+   the same day; previously this slot was deferred as "text-first per
+   Architecture Bible §10" which was correct only while the field was
+   universally NULL. Layout: image floats right of the title block on
+   sm+ screens, stacks above on mobile. next/image with techpowerup
+   allowlisted in next.config.ts; sizes constrained so a single 800px
+   TPU thumb doesn't dominate the page.
+   ───────────────────────────────────────────────────────────────────── */
 
 const MONTH_ABBREV = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -103,17 +113,34 @@ export default function EntityPage({ entity }: Props) {
         <EntityBreadcrumbs items={entity.breadcrumbs} />
       </div>
 
-      {/* Hero — text-first per Architecture Bible §10. Hero media is
-          Phase-0.5 polish, not blocking. */}
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-          {entity.name}
-        </h1>
-        <p className="mt-2 text-sm text-zinc-500">
-          {[entity.brand, releaseDate ? `Released ${releaseDate}` : null]
-            .filter(Boolean)
-            .join(' · ')}
-        </p>
+      {/* Hero — title block + optional product image. Image floats right
+          on sm+ screens, stacks below on mobile. */}
+      <header className="mb-8 sm:flex sm:items-start sm:justify-between sm:gap-6">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+            {entity.name}
+          </h1>
+          <p className="mt-2 text-sm text-zinc-500">
+            {[entity.brand, releaseDate ? `Released ${releaseDate}` : null]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        </div>
+
+        {entity.imageUrl && (
+          <div className="mt-4 flex-shrink-0 sm:mt-0">
+            <div className="relative h-32 w-44 overflow-hidden rounded border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:h-36 sm:w-48">
+              <Image
+                src={entity.imageUrl}
+                alt={entity.name}
+                fill
+                sizes="(max-width: 640px) 11rem, 12rem"
+                className="object-contain p-2"
+                unoptimized
+              />
+            </div>
+          </div>
+        )}
       </header>
 
       {/* Stats strip — fact tiles, not verdict tiles. */}
