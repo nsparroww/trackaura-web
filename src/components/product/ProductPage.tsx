@@ -654,6 +654,12 @@ function PriceChart({ product }: { product: ProductViewModel }) {
   const [range, setRange] = useState<30 | 90 | 365>(90);
   const [focus, setFocus] = useState<'all' | RetailerKey>('all');
 
+  // Mount gate prevents Recharts from measuring dimensions during SSR
+  // (would otherwise emit `width(-1) height(-1)` warning at build time
+  // and produce a first-paint glitch at runtime).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const hasHistory = product.priceHistory.length > 0;
   const data = useMemo(
     () => product.priceHistory.slice(-range),
@@ -819,7 +825,7 @@ function PriceChart({ product }: { product: ProductViewModel }) {
           }}
         >
           <div className="h-[340px] w-full">
-            {hasHistory ? (
+            {hasHistory && mounted ? (
               <ResponsiveContainer>
                 <LineChart
                   data={data}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -74,6 +74,13 @@ export default function PriceIndexChart({
   // Unique gradient ID so multiple charts on one page don't conflict
   const gradientId = useMemo(() => "gradient-" + chartId, [chartId]);
 
+  // Mount gate prevents Recharts from measuring dimensions during SSR
+  // (would otherwise emit `width(-1) height(-1)` warning at build time
+  // and produce a first-paint glitch at runtime). Parent div retains
+  // the height prop so layout doesn't shift on hydration.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   if (!data || data.length < 2) {
     return (
       <div style={{ textAlign: "center", padding: "2rem", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
@@ -89,43 +96,45 @@ export default function PriceIndexChart({
 
   return (
     <div style={{ width: "100%", height }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-          <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-              <stop offset="100%" stopColor={color} stopOpacity={0.02} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-          <XAxis
-            dataKey="date"
-            tickFormatter={formatDate}
-            tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-            axisLine={{ stroke: "var(--border)" }}
-            tickLine={false}
-            minTickGap={40}
-          />
-          <YAxis
-            domain={[minPrice - padding, maxPrice + padding]}
-            tickFormatter={(v: number) => "$" + v.toFixed(0)}
-            tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
-            axisLine={false}
-            tickLine={false}
-            width={60}
-          />
-          <Tooltip content={<CustomTooltip />} />
-          <Area
-            type="monotone"
-            dataKey="avg"
-            stroke={color}
-            strokeWidth={2.5}
-            fill={"url(#" + gradientId + ")"}
-            dot={false}
-            activeDot={{ r: 5, fill: color, stroke: "#fff", strokeWidth: 2 }}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
+      {mounted ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+                <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+            <XAxis
+              dataKey="date"
+              tickFormatter={formatDate}
+              tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+              axisLine={{ stroke: "var(--border)" }}
+              tickLine={false}
+              minTickGap={40}
+            />
+            <YAxis
+              domain={[minPrice - padding, maxPrice + padding]}
+              tickFormatter={(v: number) => "$" + v.toFixed(0)}
+              tick={{ fill: "var(--text-secondary)", fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              width={60}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <Area
+              type="monotone"
+              dataKey="avg"
+              stroke={color}
+              strokeWidth={2.5}
+              fill={"url(#" + gradientId + ")"}
+              dot={false}
+              activeDot={{ r: 5, fill: color, stroke: "#fff", strokeWidth: 2 }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      ) : null}
     </div>
   );
 }
