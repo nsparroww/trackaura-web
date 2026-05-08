@@ -1,9 +1,10 @@
 import { createClient } from '@/lib/supabase/server';
 import { resolveRetailer, type RetailerKey } from '@/lib/retailers';
+import { CATEGORY_ENTITY_MAP } from '@/lib/category-entity-map';
 
-/* ────────────────────────────────────────────────────────────────────────
+/* ----------------------------------------------------------------------
    Types
-   ──────────────────────────────────────────────────────────────────────── */
+   ---------------------------------------------------------------------- */
 
 export type HomeCategory = {
   key: string;
@@ -29,6 +30,29 @@ export type HomeFeaturedProduct = {
   isAtl: boolean;
 };
 
+/**
+ * Entity-native featured shape used by the migrated-vertical homepage
+ * section. Differs from HomeFeaturedProduct in that it carries the route
+ * prefix (e.g. '/chip', '/cpu') so cards link to the right per-vertical
+ * page without homepage code knowing about specific verticals.
+ */
+export type HomeFeaturedEntity = {
+  id: number;
+  slug: string;
+  name: string;
+  brand: string | null;
+  imageUrl: string | null;
+  routePrefix: string;
+  bestPrice: number;
+  allTimeLow: number;
+  allTimeHigh: number;
+  bestRetailerId: RetailerKey | null;
+  bestRetailerName: string | null;
+  retailerCount: number;
+  dropPct: number;
+  isAtl: boolean;
+};
+
 export type HomeRecentDrop = {
   productSlug: string;
   productName: string;
@@ -47,9 +71,9 @@ export type HomeStats = {
   categoriesTracked: number;
 };
 
-/* ────────────────────────────────────────────────────────────────────────
+/* ----------------------------------------------------------------------
    Utils
-   ──────────────────────────────────────────────────────────────────────── */
+   ---------------------------------------------------------------------- */
 
 function prettify(slug: string): string {
   return slug
@@ -66,13 +90,6 @@ function formatRelative(iso: string): string {
   return `${Math.round(diff / d)}d ago`;
 }
 
-/**
- * Reject obvious junk product names that shouldn't surface on the homepage:
- * - Template placeholders (Mustache-style {Variable Name})
- * - Server / enterprise / refurb / accessory keywords
- * - 1- or 2-word names ("WESTERN DIGITAL", "ASUS", brand-only tiles)
- * - Names that are entirely uppercase (usually category-header leaks)
- */
 const SKIP_KEYWORDS = [
   'server', 'enterprise', 'hpe ', 'proliant', 'rack mount',
   'ecc reg', 'registered', 'refurbished', 'open box',
@@ -83,21 +100,18 @@ const SKIP_KEYWORDS = [
 
 function isJunkName(name: string): boolean {
   if (!name) return true;
-  // Mustache/Handlebars template leaks like "Lenovo {Product Condition Short}".
   if (/[{}]/.test(name)) return true;
-  // Brand-only or near-empty tiles ("WESTERN DIGITAL", "LENOVO").
   const wordCount = name.trim().split(/\s+/).length;
   if (wordCount < 3) return true;
-  // Entirely-uppercase short names (header leak / bulk-CSV junk).
   if (name === name.toUpperCase() && wordCount <= 4) return true;
   const lower = name.toLowerCase();
   if (SKIP_KEYWORDS.some((kw) => lower.includes(kw))) return true;
   return false;
 }
 
-/* ────────────────────────────────────────────────────────────────────────
+/* ----------------------------------------------------------------------
    Home stats
-   ──────────────────────────────────────────────────────────────────────── */
+   ---------------------------------------------------------------------- */
 
 export async function getHomeStats(): Promise<HomeStats> {
   const supabase = await createClient();
@@ -137,9 +151,9 @@ export async function getHomeStats(): Promise<HomeStats> {
   };
 }
 
-/* ────────────────────────────────────────────────────────────────────────
+/* ----------------------------------------------------------------------
    Top categories
-   ──────────────────────────────────────────────────────────────────────── */
+   ---------------------------------------------------------------------- */
 
 export async function getHomeCategories(
   limit: number = 12,
@@ -164,9 +178,117 @@ export async function getHomeCategories(
   }));
 }
 
-/* ────────────────────────────────────────────────────────────────────────
-   Featured deals
-   ──────────────────────────────────────────────────────────────────────── */
+/* ----------------------------------------------------------------------
+   Featured entities (NEW; entity-native, replaces getFeaturedDeals on
+   the homepage)
+   ----------------------------------------------------------------------
+
+   Walks CATEGORY_ENTITY_MAP, calls get_category_entities_aggregated for
+   each distinct entity_type, and returns items currently at all-time low
+   or with a significant gap from peak. Designed to survive the transition
+   window: as verticals migrate (CPU, monitors, etc.), they're picked up
+   automatically without homepage code changes.
+
+   Threshold (isAtl OR dropPct >= 15) is intentionally strict so the
+   section reflects real price intelligence rather than promotional
+   "deals". Bible Â§2: not a deals site.
+*/
+
+type AggregatedRow = {
+  id: number;
+  slug: string;
+  canonical_name: string;
+  display_name: string | null;
+  brand: string | null;
+  image_primary_url: string | null;
+  best_price: number | null;
+  best_retailer: string | null;
+  retailer_count: number;
+  all_time_low: number | null;
+  all_time_high: number | null;
+  in_stock: boolean;
+};
+
+export async function getHomeFeaturedEntities(
+  limit: number = 8,
+): Promise<HomeFeaturedEntity[]> {
+  const supabase = await createClient();
+
+  // Dedupe entity types (multiple slugs alias to the same vertical).
+  const verticals = new Map<string, { routePrefix: string }>();
+  for (const cfg of Object.values(CATEGORY_ENTITY_MAP)) {
+    if (verticals.has(cfg.entityType)) continue;
+    verticals.set(cfg.entityType, { routePrefix: cfg.routePrefix });
+  }
+
+  const all: HomeFeaturedEntity[] = [];
+
+  for (const [entityType, { routePrefix }] of verticals) {
+    const { data, error } = await supabase.rpc(
+      'get_category_entities_aggregated',
+      { p_entity_type: entityType },
+    );
+    if (error) {
+      console.error(`[home] featured entities RPC failed for ${entityType}:`, error);
+      continue;
+    }
+    if (!Array.isArray(data)) continue;
+
+    for (const row of data as AggregatedRow[]) {
+      const bestPrice = row.best_price != null ? Number(row.best_price) : null;
+      const atl = row.all_time_low != null ? Number(row.all_time_low) : null;
+      const ath = row.all_time_high != null ? Number(row.all_time_high) : null;
+
+      if (bestPrice == null || atl == null || ath == null) continue;
+      if (!row.in_stock) continue;
+      if (ath <= atl * 1.02) continue; // no real range = no signal
+
+      const isAtl = bestPrice <= atl && bestPrice < ath * 0.95;
+      const dropPct = ((ath - bestPrice) / ath) * 100;
+
+      // Strict threshold; the section is a price-intelligence surface,
+      // not a deals carousel.
+      if (!isAtl && dropPct < 15) continue;
+
+      const name = row.display_name ?? row.canonical_name;
+      if (isJunkName(name)) continue;
+
+      const retailerCfg = row.best_retailer
+        ? resolveRetailer(row.best_retailer)
+        : null;
+
+      all.push({
+        id: row.id,
+        slug: row.slug,
+        name,
+        brand: row.brand,
+        imageUrl: row.image_primary_url,
+        routePrefix,
+        bestPrice,
+        allTimeLow: atl,
+        allTimeHigh: ath,
+        bestRetailerId: retailerCfg && retailerCfg.id !== 'unknown' ? retailerCfg.id : null,
+        bestRetailerName: retailerCfg && retailerCfg.id !== 'unknown' ? retailerCfg.name : null,
+        retailerCount: row.retailer_count,
+        dropPct,
+        isAtl,
+      });
+    }
+  }
+
+  // ATL items first, then biggest drop %.
+  all.sort((a, b) => {
+    if (a.isAtl !== b.isAtl) return a.isAtl ? -1 : 1;
+    return b.dropPct - a.dropPct;
+  });
+
+  return all.slice(0, limit);
+}
+
+/* ----------------------------------------------------------------------
+   Featured deals (DEPRECATED on the homepage â€” kept for safety in case
+   another component imports it. Delete once confirmed unused.)
+   ---------------------------------------------------------------------- */
 
 export async function getFeaturedDeals(
   count: number = 6,
@@ -174,7 +296,7 @@ export async function getFeaturedDeals(
   const supabase = await createClient();
 
   const { data, error } = await supabase.rpc('home_featured_deals', {
-    candidate_limit: 80, // oversample so junk filtering doesn't starve us
+    candidate_limit: 80,
   });
 
   if (error) {
@@ -197,7 +319,6 @@ export async function getFeaturedDeals(
     drop_pct: number;
   };
 
-  console.log('[home] featured RPC returned', (data as unknown[]).length, 'rows');
   const scored: HomeFeaturedProduct[] = [];
   for (const row of data as RpcRow[]) {
     if (isJunkName(row.name)) continue;
@@ -207,9 +328,6 @@ export async function getFeaturedDeals(
     const max = Number(row.max_price);
     const retailerCfg = resolveRetailer(row.retailer);
 
-    // ATL only when there's a meaningful range AND current is at/below the
-    // historical low. Without the high-vs-current check, scrapers that
-    // initialize min_price = current_price make every deal look like ATL.
     const hasRealRange = max > 0 && min > 0 && max > min * 1.02;
     const isAtl = hasRealRange && curr <= min && curr < max * 0.95;
 
@@ -231,7 +349,6 @@ export async function getFeaturedDeals(
     });
   }
 
-  // Round-robin by category so one category can't hog the feature strip.
   const byCategory = new Map<string, HomeFeaturedProduct[]>();
   for (const p of scored) {
     const arr = byCategory.get(p.category) ?? [];
@@ -256,14 +373,13 @@ export async function getFeaturedDeals(
   return featured;
 }
 
-/* ────────────────────────────────────────────────────────────────────────
-   Recent price drops
-   ──────────────────────────────────────────────────────────────────────── */
+/* ----------------------------------------------------------------------
+   Recent price drops (DEPRECATED on the homepage â€” same notes as above)
+   ---------------------------------------------------------------------- */
 
 export async function getRecentDrops(limit: number = 6): Promise<HomeRecentDrop[]> {
   const supabase = await createClient();
 
-  // Pull the 500 newest price points with enough context to detect drops.
   const { data: points } = await supabase
     .from('price_points')
     .select('product_id, price, timestamp')
@@ -272,7 +388,6 @@ export async function getRecentDrops(limit: number = 6): Promise<HomeRecentDrop[
 
   if (!points || points.length === 0) return [];
 
-  // Group by product to find (previous, current) pairs.
   const byProduct = new Map<number, typeof points>();
   for (const p of points) {
     const arr = byProduct.get(p.product_id) ?? [];
@@ -308,12 +423,10 @@ export async function getRecentDrops(limit: number = 6): Promise<HomeRecentDrop[
   }
 
   drops.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  // Oversample heavily — junk filtering can drop a lot of candidates.
   const top = drops.slice(0, limit * 6);
 
   if (top.length === 0) return [];
 
-  // Second query: fetch product + canonical info for only the winners.
   const productIds = top.map((d) => d.productId);
   const { data: productRows } = await supabase
     .from('products')
@@ -344,9 +457,6 @@ export async function getRecentDrops(limit: number = 6): Promise<HomeRecentDrop[
       : null;
     if (!canonical) continue;
 
-    // Filter the same way featured deals do — drops were the leak path
-    // that put "WESTERN DIGITAL" and "Lenovo {Product Condition Short}"
-    // on the homepage.
     if (isJunkName(canonical.name)) continue;
     if (canonical.category === 'other') continue;
 

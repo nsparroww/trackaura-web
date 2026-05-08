@@ -1,4 +1,4 @@
-import { Metadata } from "next";
+﻿import { Metadata } from "next";
 import Link from "next/link";
 import { getAllProducts } from "@/lib/data";
 import { CATEGORY_LABELS, CATEGORY_ICONS } from "@/types";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 
 export const metadata: Metadata = {
-  title: "All Categories — TrackAura Canadian Electronics Price Tracker",
+  title: "All Categories â€” TrackAura Canadian Electronics Price Tracker",
   description:
     "Browse all electronics categories tracked by TrackAura. Compare prices on GPUs, CPUs, laptops, monitors, RAM, SSDs, and more across Canadian retailers.",
   alternates: { canonical: "https://www.trackaura.com/categories" },
@@ -31,7 +31,7 @@ export default async function CategoriesPage() {
     .map(([key, count]) => ({
       key,
       label: CATEGORY_LABELS[key] || key,
-      icon: CATEGORY_ICONS[key] || "📦",
+      icon: CATEGORY_ICONS[key] || "ðŸ“¦",
       count,
       atLowest: categoryAtLowest[key] || 0,
     }));
@@ -41,7 +41,7 @@ export default async function CategoriesPage() {
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
-    name: "All Electronics Categories — TrackAura",
+    name: "All Electronics Categories â€” TrackAura",
     description:
       "Browse all " +
       categories.length +
@@ -150,7 +150,7 @@ export default async function CategoriesPage() {
                   {cat.count.toLocaleString() + " products tracked"}
                   {cat.atLowest > 0 && (
                     <span style={{ color: "var(--accent)", fontWeight: 600 }}>
-                      {" · " + cat.atLowest + " at lowest"}
+                      {" Â· " + cat.atLowest + " at lowest"}
                     </span>
                   )}
                 </p>
@@ -225,16 +225,6 @@ export default async function CategoriesPage() {
           </Link>
           {" to see how prices are moving across the Canadian electronics market."}
         </p>
-      </div>
-
-      <div style={{ textAlign: "center" }}>
-        <Link
-          href="/deals"
-          className="btn-primary"
-          style={{ textDecoration: "none", display: "inline-block" }}
-        >
-          View Today&apos;s Best Deals
-        </Link>
       </div>
     </div>
   );

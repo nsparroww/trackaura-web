@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { getAllProducts } from "@/lib/data";
 import { CATEGORY_LABELS } from "@/types";
 
 // Cache each child sitemap for 24 hours.
 // Product data only updates every 4 hours anyway, and Google doesn't need
-// hour-level freshness on sitemaps — daily is standard practice.
+// hour-level freshness on sitemaps â€” daily is standard practice.
 export const revalidate = 86400;
 
 const BASE_URL = "https://www.trackaura.com";
@@ -64,7 +64,6 @@ async function buildStaticSitemap(): Promise<SitemapEntry[]> {
   const staticPages: SitemapEntry[] = [
     { url: BASE_URL, lastmod: today, changefreq: "daily", priority: 1.0 },
     { url: `${BASE_URL}/products`, lastmod: today, changefreq: "daily", priority: 0.9 },
-    { url: `${BASE_URL}/deals`, lastmod: today, changefreq: "daily", priority: 0.9 },
     { url: `${BASE_URL}/compare`, lastmod: STATIC_PAGE_DATE, changefreq: "weekly", priority: 0.8 },
     { url: `${BASE_URL}/categories`, lastmod: STATIC_PAGE_DATE, changefreq: "monthly", priority: 0.7 },
     { url: `${BASE_URL}/about`, lastmod: STATIC_PAGE_DATE, changefreq: "yearly", priority: 0.5 },

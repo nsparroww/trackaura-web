@@ -1,4 +1,4 @@
-import type { MetadataRoute } from 'next';
+﻿import type { MetadataRoute } from 'next';
 
 /**
  * Static, evergreen URLs (homepage, browse pages, marketing).
@@ -12,7 +12,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     { url: `${BASE}/`,         lastModified: now, changeFrequency: 'daily',   priority: 1.0 },
     { url: `${BASE}/products`, lastModified: now, changeFrequency: 'daily',   priority: 0.9 },
-    { url: `${BASE}/deals`,    lastModified: now, changeFrequency: 'hourly',  priority: 0.9 },
     { url: `${BASE}/brands`,   lastModified: now, changeFrequency: 'weekly',  priority: 0.7 },
     { url: `${BASE}/blog`,     lastModified: now, changeFrequency: 'weekly',  priority: 0.6 },
     { url: `${BASE}/about`,    lastModified: now, changeFrequency: 'monthly', priority: 0.4 },

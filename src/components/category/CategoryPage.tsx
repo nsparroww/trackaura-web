@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Tag, Check, Flame } from 'lucide-react';
 import { RETAILERS } from '@/lib/retailers';
@@ -9,7 +9,7 @@ import type {
   CategoryProduct,
 } from '@/lib/queries/category';
 
-/* ── Theme helpers ── */
+/* Theme helpers */
 const C = {
   bg: 'var(--bg-primary)',
   bgCard: 'var(--bg-card)',
@@ -28,20 +28,32 @@ const fmtPrice = (n: number) =>
   `$${Math.round(n).toLocaleString('en-CA', { maximumFractionDigits: 0 })}`;
 const fmtCount = (n: number) => n.toLocaleString('en-CA');
 
+const PAGE_SIZE = 48;
+
 type SortKey = 'deals' | 'price-asc' | 'price-desc' | 'name-asc';
 
-/* ──────────────────────────────────────────────────────────────
-   Page
-   ────────────────────────────────────────────────────────────── */
+/* ---------- Page ---------- */
 
 export default function CategoryPage({
   category,
+  entityRoutePrefix = '/p',
 }: {
   category: CategoryViewModel;
+  /**
+   * Where individual product cards link. Defaults to '/p' (v0 canonical_products
+   * read path). Migrated verticals pass '/chip', '/cpu', etc. via the route.
+   */
+  entityRoutePrefix?: string;
 }) {
   const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
   const [inStockOnly, setInStockOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('deals');
+  const [page, setPage] = useState(1);
+
+  // Reset to page 1 whenever filters or sort change.
+  useEffect(() => {
+    setPage(1);
+  }, [selectedBrands, inStockOnly, sortKey]);
 
   const filteredProducts = useMemo(() => {
     let list = category.products;
@@ -105,6 +117,28 @@ export default function CategoryPage({
     return sorted;
   }, [category.products, selectedBrands, inStockOnly, sortKey]);
 
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredProducts.length / PAGE_SIZE),
+  );
+  const safePage = Math.min(page, totalPages);
+  const pagedProducts = useMemo(
+    () =>
+      filteredProducts.slice(
+        (safePage - 1) * PAGE_SIZE,
+        safePage * PAGE_SIZE,
+      ),
+    [filteredProducts, safePage],
+  );
+
+  const goToPage = (n: number) => {
+    const target = Math.max(1, Math.min(totalPages, n));
+    setPage(target);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const toggleBrand = (name: string) => {
     setSelectedBrands((prev) => {
       const next = new Set(prev);
@@ -114,20 +148,23 @@ export default function CategoryPage({
     });
   };
 
+  const firstOnPage = (safePage - 1) * PAGE_SIZE + 1;
+  const lastOnPage = Math.min(safePage * PAGE_SIZE, filteredProducts.length);
+
   return (
     <div>
-      {/* Breadcrumbs */}
+      {/* Breadcrumbs: Home / Category. Matches ARCHITECTURE Â§7 spec. */}
       <div style={{ borderBottom: `1px solid ${C.border}` }}>
         <div
           className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-1.5 px-4 py-2 text-[11px]"
           style={{ color: C.textDim }}
         >
           <Link
-            href="/products"
+            href="/"
             className="transition-opacity hover:opacity-80"
             style={{ color: C.textDim }}
           >
-            All products
+            Home
           </Link>
           <span style={{ color: C.border }}>/</span>
           <span style={{ color: C.text }}>{category.name}</span>
@@ -182,7 +219,7 @@ export default function CategoryPage({
               value={
                 category.stats.medianPrice
                   ? fmtPrice(category.stats.medianPrice)
-                  : '—'
+                  : '-'
               }
             />
             <Stat
@@ -190,7 +227,7 @@ export default function CategoryPage({
               value={
                 category.stats.avgPrice
                   ? fmtPrice(category.stats.avgPrice)
-                  : '—'
+                  : '-'
               }
             />
             <Stat
@@ -281,8 +318,9 @@ export default function CategoryPage({
               className="text-[11px] tabular-nums"
               style={{ color: C.textDim, fontFamily: FONT_DISPLAY }}
             >
-              {fmtCount(filteredProducts.length)} of{' '}
-              {fmtCount(category.products.length)}
+              {filteredProducts.length === 0
+                ? `0 of ${fmtCount(category.products.length)}`
+                : `${fmtCount(firstOnPage)}-${fmtCount(lastOnPage)} of ${fmtCount(filteredProducts.length)}`}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -334,11 +372,28 @@ export default function CategoryPage({
               </button>
             </div>
           ) : (
-            <div className="grid-products">
-              {filteredProducts.map((p) => (
-                <ProductCard key={p.id} product={p} />
-              ))}
-            </div>
+            <>
+              <div className="grid-products">
+                {pagedProducts.map((p) => (
+                  <ProductCard
+                    key={p.id}
+                    product={p}
+                    entityRoutePrefix={entityRoutePrefix}
+                  />
+                ))}
+              </div>
+
+              {totalPages > 1 && (
+                <Pagination
+                  page={safePage}
+                  totalPages={totalPages}
+                  onPrev={() => goToPage(safePage - 1)}
+                  onNext={() => goToPage(safePage + 1)}
+                  onFirst={() => goToPage(1)}
+                  onLast={() => goToPage(totalPages)}
+                />
+              )}
+            </>
           )}
         </div>
       </section>
@@ -346,7 +401,7 @@ export default function CategoryPage({
   );
 }
 
-/* ── Sub-components ── */
+/* ---------- Sub-components ---------- */
 
 function Stat({
   label,
@@ -377,7 +432,94 @@ function Stat({
   );
 }
 
-function ProductCard({ product }: { product: CategoryProduct }) {
+function Pagination({
+  page,
+  totalPages,
+  onPrev,
+  onNext,
+  onFirst,
+  onLast,
+}: {
+  page: number;
+  totalPages: number;
+  onPrev: () => void;
+  onNext: () => void;
+  onFirst: () => void;
+  onLast: () => void;
+}) {
+  const btnBase = 'rounded-md px-3 py-1.5 text-[11px] transition-opacity disabled:cursor-not-allowed disabled:opacity-30 hover:opacity-80';
+  const btnStyle: React.CSSProperties = {
+    background: C.bgSecondary,
+    border: `1px solid ${C.border}`,
+    color: C.text,
+    fontFamily: FONT_DISPLAY,
+  };
+
+  return (
+    <nav
+      aria-label="Pagination"
+      className="mt-8 flex items-center justify-center gap-2"
+    >
+      <button
+        type="button"
+        onClick={onFirst}
+        disabled={page === 1}
+        className={btnBase}
+        style={btnStyle}
+      >
+        First
+      </button>
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={page === 1}
+        className={btnBase}
+        style={btnStyle}
+      >
+        Prev
+      </button>
+      <span
+        className="px-3 text-[11px] tabular-nums"
+        style={{ color: C.textDim, fontFamily: FONT_DISPLAY }}
+      >
+        Page <span style={{ color: C.text }}>{page}</span> of{' '}
+        <span style={{ color: C.text }}>{totalPages}</span>
+      </span>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={page === totalPages}
+        className={btnBase}
+        style={btnStyle}
+      >
+        Next
+      </button>
+      <button
+        type="button"
+        onClick={onLast}
+        disabled={page === totalPages}
+        className={btnBase}
+        style={btnStyle}
+      >
+        Last
+      </button>
+    </nav>
+  );
+}
+
+function ProductCard({
+  product,
+  entityRoutePrefix,
+}: {
+  product: CategoryProduct;
+  entityRoutePrefix: string;
+}) {
+  // Per-card image-load guard. Some entities (datacenter / embedded chips
+  // like "RTX 5000 Embedded Ada Generation") have a non-null TPU image URL
+  // that 404s; without this state the alt text would render in the image
+  // area and bleed product names into the card.
+  const [imgFailed, setImgFailed] = useState(false);
+
   const retailer = product.bestRetailerId
     ? RETAILERS[product.bestRetailerId]
     : null;
@@ -392,9 +534,11 @@ function ProductCard({ product }: { product: CategoryProduct }) {
         )
       : 0;
 
+  const showImage = !!product.imageUrl && !imgFailed;
+
   return (
     <Link
-      href={`/p/${product.slug}`}
+      href={`${entityRoutePrefix}/${product.slug}`}
       className="card group flex flex-col overflow-hidden"
       style={{ textDecoration: 'none' }}
     >
@@ -406,11 +550,12 @@ function ProductCard({ product }: { product: CategoryProduct }) {
           background: `linear-gradient(135deg, ${C.bgCard}, ${C.bg})`,
         }}
       >
-        {product.imageUrl ? (
+        {showImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={product.imageUrl}
+            src={product.imageUrl as string}
             alt={product.name}
+            onError={() => setImgFailed(true)}
             className="h-full w-full object-contain p-4 transition duration-200 group-hover:scale-[1.03]"
             loading="lazy"
           />
@@ -449,7 +594,8 @@ function ProductCard({ product }: { product: CategoryProduct }) {
                 fontFamily: FONT_DISPLAY,
               }}
             >
-              <Flame className="h-2.5 w-2.5" />−{dropPct}%
+              <Flame className="h-2.5 w-2.5" />
+              -{dropPct}%
             </span>
           )}
           {product.isOpenBox && (
@@ -497,7 +643,7 @@ function ProductCard({ product }: { product: CategoryProduct }) {
                 textDecoration: product.inStock ? 'none' : 'line-through',
               }}
             >
-              {product.bestPrice != null ? fmtPrice(product.bestPrice) : '—'}
+              {product.bestPrice != null ? fmtPrice(product.bestPrice) : '-'}
             </span>
             {product.allTimeLow != null &&
               product.bestPrice != null &&
@@ -531,7 +677,7 @@ function ProductCard({ product }: { product: CategoryProduct }) {
                   <span className="truncate">{retailer.name}</span>
                   {product.retailerCount > 1 && (
                     <span style={{ color: C.border }}>
-                      · +{product.retailerCount - 1}
+                      +{product.retailerCount - 1}
                     </span>
                   )}
                 </>

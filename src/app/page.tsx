@@ -1,137 +1,473 @@
 import Link from 'next/link';
+import { Instrument_Serif, IBM_Plex_Sans } from 'next/font/google';
+import {
+  Monitor,
+  MemoryStick,
+  Keyboard,
+  CircuitBoard,
+  Cpu,
+  Mouse,
+  Box,
+  HardDrive,
+  Zap,
+  Snowflake,
+  Cable,
+  Headphones,
+  Laptop,
+  Smartphone,
+  Home as HomeIcon,
+  Package,
+  ArrowRight,
+  Fan,
+  Router,
+  Network,
+  BatteryCharging,
+  Computer,
+  Webcam,
+  Tv,
+  Gamepad2,
+  Speaker,
+} from 'lucide-react';
 import SearchBar from '@/components/SearchBar';
 import EmailSignup from '@/components/EmailSignup';
 import {
-  getHomeStats,
   getHomeCategories,
-  getFeaturedDeals,
-  getRecentDrops,
-  type HomeFeaturedProduct,
+  getHomeFeaturedEntities,
 } from '@/lib/queries/home';
-import { CATEGORY_LABELS, CATEGORY_ICONS } from '@/types';
+import { CATEGORY_ENTITY_MAP } from '@/lib/category-entity-map';
+import { CATEGORY_LABELS } from '@/types';
 
-// Re-render every 15 minutes. Homepage doesn't need per-minute freshness.
-export const revalidate = 900;
+/* ─────────────────────────────────────────────────────────────────────
+   Homepage v3.1 — editorial-dark direction (2026-05-05)
+
+   Iteration over v3 — same overall direction, just patches:
+     - Icon map covers all currently-tracked categories. Previously
+       fell through to Package for Case Fans, Routers, Network Switches,
+       Hard Drives, UPS, External Storage, Desktop PCs, Webcams, TVs,
+       Game Controllers. Speakers fixed from Headphones to Speaker.
+     - No structural changes; everything else carries over from v3.
+
+   Reference content (Wikipedia-style featured entry, italic serif
+   headings, Lucide icons, real horizontal rule dividers, sentence
+   case, demoted email signup) all stay.
+
+   Bible Draft 43 captures the new Protocol #35 around
+   CATEGORY_ENTITY_MAP activation discipline — separate file change.
+   ───────────────────────────────────────────────────────────────────── */
+
+const serif = Instrument_Serif({
+  subsets: ['latin'],
+  weight: '400',
+  style: ['normal', 'italic'],
+  display: 'swap',
+});
+
+const sans = IBM_Plex_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  display: 'swap',
+});
+
+// Lucide icon map. Keys mirror category slugs. Falls back to <Package />
+// for unknown keys so adding a new vertical doesn't break the homepage
+// even before the icon lands.
+const CATEGORY_LUCIDE: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
+  monitors: Monitor,
+  displays: Monitor,
+  ram: MemoryStick,
+  memory: MemoryStick,
+  keyboards: Keyboard,
+  motherboards: CircuitBoard,
+  'graphics-cards': Cpu,
+  gpus: Cpu,
+  'video-cards': Cpu,
+  cpus: Cpu,
+  processors: Cpu,
+  mice: Mouse,
+  'pc-cases': Box,
+  cases: Box,
+  ssds: HardDrive,
+  'hard-drives': HardDrive,
+  'external-storage': HardDrive,
+  storage: HardDrive,
+  'power-supplies': Zap,
+  psu: Zap,
+  'cpu-coolers': Snowflake,
+  cooling: Snowflake,
+  'case-fans': Fan,
+  fans: Fan,
+  accessories: Cable,
+  controllers: Gamepad2,
+  'game-controllers': Gamepad2,
+  gamepads: Gamepad2,
+  headphones: Headphones,
+  audio: Headphones,
+  speakers: Speaker,
+  laptops: Laptop,
+  'desktop-pcs': Computer,
+  desktops: Computer,
+  cellphones: Smartphone,
+  phones: Smartphone,
+  'smart-home': HomeIcon,
+  routers: Router,
+  'network-switches': Network,
+  networking: Network,
+  'ups-surge-protection': BatteryCharging,
+  ups: BatteryCharging,
+  webcams: Webcam,
+  tvs: Tv,
+  televisions: Tv,
+};
+
+function CategoryIcon({ categoryKey, size = 22 }: { categoryKey: string; size?: number }) {
+  const Icon = CATEGORY_LUCIDE[categoryKey] ?? Package;
+  return <Icon size={size} strokeWidth={1.5} />;
+}
 
 const fmtPrice = (n: number) =>
   `$${Math.round(n).toLocaleString('en-CA', { maximumFractionDigits: 0 })}`;
 
+// Re-render every 15 minutes. Homepage doesn't need per-minute freshness.
+export const revalidate = 900;
+
 export default async function HomePage() {
-  // Fan out all four queries in parallel.
-  const [stats, rawCategories, featured, drops] = await Promise.all([
-    getHomeStats(),
-    getHomeCategories(12),
-    getFeaturedDeals(6),
-    getRecentDrops(6),
+  const [rawCategories, featuredList] = await Promise.all([
+    getHomeCategories(50),
+    getHomeFeaturedEntities(1),
   ]);
 
-  // Merge in the emoji icon map from /types.
   const topCategories = rawCategories.map((c) => ({
     ...c,
     label: CATEGORY_LABELS[c.key] ?? c.label,
-    icon: CATEGORY_ICONS[c.key] ?? '📦',
+    isMigrated: c.key in CATEGORY_ENTITY_MAP,
   }));
 
+  const featured = featuredList[0] ?? null;
+  const totalEntries = topCategories.reduce((sum, c) => sum + c.count, 0);
+  const categoryCount = topCategories.length;
+
   return (
-    <div>
-      {/* ── Hero ── */}
+    <div className={sans.className}>
+      {/* Hero */}
       <section
         style={{
-          padding: '3.5rem 1.5rem 2rem',
-          maxWidth: 680,
+          padding: '5rem 1.5rem 2rem',
+          maxWidth: 760,
           margin: '0 auto',
           textAlign: 'center',
         }}
       >
         <h1
-          className="animate-in"
+          className={`animate-in ${serif.className}`}
           style={{
-            fontFamily: "'Sora', sans-serif",
-            fontWeight: 800,
-            fontSize: '2.25rem',
-            lineHeight: 1.15,
-            marginBottom: '0.75rem',
+            fontWeight: 400,
+            fontSize: '3.75rem',
+            lineHeight: 1.0,
+            marginBottom: '1.5rem',
+            letterSpacing: '-0.02em',
           }}
         >
-          The Canadian
+          The encyclopedia of
           <br />
-          <span className="gradient-text">Price Encyclopedia</span>
+          <span className="gradient-text" style={{ fontStyle: 'italic' }}>
+            what things are worth.
+          </span>
         </h1>
         <p
           className="animate-in animate-delay-1"
           style={{
             color: 'var(--text-secondary)',
-            fontSize: '1rem',
+            fontSize: '0.9375rem',
             lineHeight: 1.6,
-            maxWidth: 480,
-            margin: '0 auto 1.75rem',
+            maxWidth: 540,
+            margin: '0 auto 2.25rem',
+            opacity: 0.85,
           }}
         >
-          {stats.totalProducts.toLocaleString()} electronics products tracked daily across {stats.totalRetailers} Canadian retailers.
+          Independent. No ads, no sponsored placements, no paywalled price history.
         </p>
 
         <div
           className="animate-in animate-delay-2"
-          style={{ maxWidth: 520, margin: '0 auto', position: 'relative', zIndex: 100 }}
+          style={{ maxWidth: 560, margin: '0 auto', position: 'relative', zIndex: 100 }}
         >
           <SearchBar large />
         </div>
       </section>
 
-      {/* ── Retailer line ── */}
-      <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
+      {/* Catalog scope — encyclopedia-framed stat */}
+      <section
+        style={{
+          maxWidth: 720,
+          margin: '0 auto 4rem',
+          padding: '0 1.5rem',
+          textAlign: 'center',
+        }}
+      >
         <p
           style={{
-            fontSize: '0.75rem',
+            fontSize: '0.875rem',
             color: 'var(--text-secondary)',
-            letterSpacing: '0.02em',
+            letterSpacing: '0.01em',
           }}
         >
-          Tracking prices from{' '}
-          <span style={{ color: 'var(--cc-color)', fontWeight: 600 }}>
-            Canada Computers
-          </span>{' '}
-          ·{' '}
-          <span style={{ color: 'var(--newegg-color)', fontWeight: 600 }}>
-            Newegg Canada
-          </span>{' '}
-          ·{' '}
-          <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Vuugo</span>{' '}
-          ·{' '}
-          <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
-            Visions Electronics
+          <span
+            className={serif.className}
+            style={{
+              color: 'var(--accent)',
+              fontWeight: 400,
+              fontSize: '1.5rem',
+              fontStyle: 'italic',
+              fontVariantNumeric: 'tabular-nums',
+              marginRight: '0.375rem',
+              verticalAlign: 'baseline',
+            }}
+          >
+            {totalEntries.toLocaleString()}
           </span>
+          tracked entries across {categoryCount} categories. Refreshed daily.
         </p>
-      </div>
+      </section>
 
-      {/* ── Categories (flat grid, top 12) ── */}
-      <section style={{ maxWidth: 1200, margin: '0 auto 3rem', padding: '0 1.5rem' }}>
+      {/* Featured entry — Wikipedia-style "Today in the encyclopedia" */}
+      {featured && (
+        <section
+          style={{
+            maxWidth: 1040,
+            margin: '0 auto 5rem',
+            padding: '0 1.5rem',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              marginBottom: '1.25rem',
+              gap: '0.5rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <p
+              style={{
+                fontSize: '0.6875rem',
+                color: 'var(--text-secondary)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.15em',
+                fontWeight: 500,
+              }}
+            >
+              Today in the encyclopedia
+            </p>
+          </div>
+
+          <Link
+            href={`${featured.routePrefix}/${featured.slug}`}
+            className="card"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: 0,
+              textDecoration: 'none',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                aspectRatio: '4 / 3',
+                background: 'linear-gradient(135deg, var(--bg-card), var(--bg-primary))',
+                borderRight: '1px solid var(--border)',
+                position: 'relative',
+                overflow: 'hidden',
+                minHeight: 240,
+              }}
+            >
+              {featured.imageUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={featured.imageUrl}
+                  alt={featured.name}
+                  loading="eager"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain',
+                    padding: '2rem',
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    display: 'flex',
+                    height: '100%',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  No image
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                padding: '2rem 2.25rem',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                gap: '0.75rem',
+              }}
+            >
+              {featured.brand && (
+                <p
+                  style={{
+                    fontSize: '0.6875rem',
+                    color: 'var(--text-secondary)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.12em',
+                    fontWeight: 600,
+                  }}
+                >
+                  {featured.brand}
+                </p>
+              )}
+              <h3
+                className={serif.className}
+                style={{
+                  fontSize: '1.875rem',
+                  fontWeight: 400,
+                  lineHeight: 1.15,
+                  letterSpacing: '-0.01em',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                {featured.name}
+              </h3>
+              <p
+                style={{
+                  fontSize: '0.875rem',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.6,
+                  fontStyle: 'italic',
+                }}
+              >
+                An example of a canonical entry. Each entry tracks current prices, full price
+                history, and the retailers where the item is available.
+              </p>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: '0.875rem',
+                  marginTop: '0.25rem',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span
+                  className={serif.className}
+                  style={{
+                    fontSize: '1.75rem',
+                    fontWeight: 400,
+                    color: 'var(--accent)',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {fmtPrice(featured.bestPrice)}
+                </span>
+                {featured.allTimeHigh > featured.bestPrice && (
+                  <span
+                    style={{
+                      fontSize: '0.8125rem',
+                      color: 'var(--text-secondary)',
+                      textDecoration: 'line-through',
+                      fontVariantNumeric: 'tabular-nums',
+                      opacity: 0.7,
+                    }}
+                  >
+                    {fmtPrice(featured.allTimeHigh)} peak
+                  </span>
+                )}
+              </div>
+              {featured.bestRetailerName && (
+                <p
+                  style={{
+                    fontSize: '0.8125rem',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  at {featured.bestRetailerName}
+                  {featured.retailerCount > 1 && (
+                    <span style={{ opacity: 0.7 }}>
+                      {' '}+ {featured.retailerCount - 1} other retailer
+                      {featured.retailerCount > 2 ? 's' : ''}
+                    </span>
+                  )}
+                </p>
+              )}
+              <p
+                style={{
+                  fontSize: '0.8125rem',
+                  color: 'var(--accent)',
+                  marginTop: '0.5rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.375rem',
+                  fontWeight: 500,
+                }}
+              >
+                Read the full entry <ArrowRight size={14} strokeWidth={2} />
+              </p>
+            </div>
+          </Link>
+        </section>
+      )}
+
+      {/* Categories — primary navigation */}
+      <section style={{ maxWidth: 1200, margin: '0 auto 5rem', padding: '0 1.5rem' }}>
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '1rem',
+            alignItems: 'baseline',
+            marginBottom: '0.5rem',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
           }}
         >
           <h2
+            className={serif.className}
             style={{
-              fontFamily: "'Sora', sans-serif",
-              fontWeight: 700,
-              fontSize: '1.25rem',
+              fontWeight: 400,
+              fontSize: '2rem',
+              letterSpacing: '-0.015em',
+              fontStyle: 'italic',
             }}
           >
-            Browse Categories
+            Browse the catalog
           </h2>
           <Link href="/categories" className="accent-link" style={{ fontSize: '0.875rem' }}>
-            All categories →
+            All categories <ArrowRight size={12} strokeWidth={2} style={{ display: 'inline', marginLeft: '0.25rem', verticalAlign: 'middle' }} />
           </Link>
         </div>
+        <p
+          style={{
+            fontSize: '0.875rem',
+            color: 'var(--text-secondary)',
+            marginBottom: '1.75rem',
+            maxWidth: 640,
+            lineHeight: 1.6,
+          }}
+        >
+          Every product is a canonical entry &mdash; one record per real-world item, with
+          current prices and full history.
+        </p>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-            gap: '0.75rem',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
+            gap: '0.625rem',
           }}
         >
           {topCategories.map((cat) => (
@@ -140,249 +476,223 @@ export default async function HomePage() {
               href={`/c/${cat.key}`}
               className="card"
               style={{
-                padding: '1rem',
+                padding: '1.25rem 1rem',
                 textDecoration: 'none',
-                textAlign: 'center',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '0.25rem',
+                gap: '0.5rem',
+                minHeight: 130,
+                alignItems: 'flex-start',
               }}
             >
-              <span style={{ fontSize: '1.5rem' }}>{cat.icon}</span>
+              <span
+                style={{
+                  color: cat.isMigrated ? 'var(--accent)' : 'var(--text-secondary)',
+                  opacity: cat.isMigrated ? 1 : 0.75,
+                  display: 'inline-flex',
+                }}
+              >
+                <CategoryIcon categoryKey={cat.key} />
+              </span>
               <p
                 style={{
-                  fontFamily: "'Sora', sans-serif",
                   fontWeight: 600,
-                  fontSize: '0.875rem',
+                  fontSize: '0.9375rem',
                   color: 'var(--text-primary)',
+                  lineHeight: 1.3,
+                  marginTop: '0.25rem',
                 }}
               >
                 {cat.label}
               </p>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                {cat.count.toLocaleString()} tracked
+              <p
+                style={{
+                  fontSize: '0.75rem',
+                  color: 'var(--text-secondary)',
+                  marginTop: 'auto',
+                }}
+              >
+                <span
+                  style={{
+                    color: cat.isMigrated ? 'var(--accent)' : 'var(--text-secondary)',
+                    fontWeight: cat.isMigrated ? 600 : 400,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {cat.count.toLocaleString()}
+                </span>
+                {' '}entries
               </p>
             </Link>
           ))}
         </div>
       </section>
 
-      {/* ── Top Deals ── */}
-      {featured.length > 0 && (
-        <section style={{ maxWidth: 1200, margin: '0 auto 3rem', padding: '0 1.5rem' }}>
-          <div
+      {/* About the encyclopedia — editorial content block */}
+      <section
+        style={{
+          maxWidth: 720,
+          margin: '0 auto 5rem',
+          padding: '0 1.5rem',
+        }}
+      >
+        <div
+          style={{
+            borderTop: '1px solid var(--border)',
+            paddingTop: '3rem',
+          }}
+        >
+          <h2
+            className={serif.className}
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
+              fontWeight: 400,
+              fontSize: '1.75rem',
+              marginBottom: '1.25rem',
+              letterSpacing: '-0.01em',
+              fontStyle: 'italic',
+            }}
+          >
+            About the encyclopedia
+          </h2>
+          <p
+            style={{
+              fontSize: '0.9375rem',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.75,
               marginBottom: '1rem',
             }}
           >
-            <h2
-              style={{
-                fontFamily: "'Sora', sans-serif",
-                fontWeight: 700,
-                fontSize: '1.25rem',
-              }}
-            >
-              Top Deals Right Now
-            </h2>
-            <Link href="/deals" className="accent-link" style={{ fontSize: '0.875rem' }}>
-              All deals →
-            </Link>
-          </div>
-          <div className="grid-products">
-            {featured.map((p) => (
-              <FeaturedCard key={p.id} product={p} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Recent Price Drops ── */}
-      {drops.length > 0 && (
-        <section style={{ maxWidth: 900, margin: '0 auto 3rem', padding: '0 1.5rem' }}>
-          <div
+            TrackAura is a reference catalog of consumer products, not a deals site. Every
+            entry is a canonical record of one real-world item &mdash; its specs, current
+            prices across the Canadian retailers we cover, and full price history going back
+            to when we started tracking.
+          </p>
+          <p
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '1rem',
+              fontSize: '0.9375rem',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.75,
+              marginBottom: '1.5rem',
             }}
           >
-            <h2
-              style={{
-                fontFamily: "'Sora', sans-serif",
-                fontWeight: 700,
-                fontSize: '1.25rem',
-              }}
-            >
-              Recent Price Drops
-            </h2>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {drops.map((d, i) => (
-              <Link
-                key={`${d.productSlug}-${i}`}
-                href={`/p/${d.productSlug}`}
-                className="card"
-                style={{
-                  padding: '0.75rem 1.25rem',
-                  textDecoration: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '1rem',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 200 }}>
-                  <p
-                    style={{
-                      fontFamily: "'Sora', sans-serif",
-                      fontWeight: 600,
-                      fontSize: '0.8125rem',
-                      color: 'var(--text-primary)',
-                      marginBottom: '0.125rem',
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    {d.productName.length > 70
-                      ? d.productName.slice(0, 70) + '…'
-                      : d.productName}
-                  </p>
-                  <p style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>
-                    {d.retailerName} ·{' '}
-                    {CATEGORY_LABELS[d.category] ?? d.category} · {d.when}
-                  </p>
-                </div>
-                <div style={{ textAlign: 'right', minWidth: 110 }}>
-                  <span
-                    style={{
-                      fontSize: '0.75rem',
-                      color: 'var(--text-secondary)',
-                      textDecoration: 'line-through',
-                      marginRight: '0.5rem',
-                    }}
-                  >
-                    {fmtPrice(d.oldPrice)}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: '0.9375rem',
-                      fontWeight: 700,
-                      color: 'var(--accent)',
-                    }}
-                  >
-                    {fmtPrice(d.newPrice)}
-                  </span>
-                  <p
-                    style={{
-                      fontSize: '0.6875rem',
-                      fontWeight: 600,
-                      color: 'var(--accent)',
-                      marginTop: '0.125rem',
-                    }}
-                  >
-                    ▼ {d.pct.toFixed(1)}%
-                  </p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── Email signup ── */}
-      <section style={{ maxWidth: 600, margin: '0 auto 3rem', padding: '0 1.5rem' }}>
-        <EmailSignup />
+            Free to read. No ads. No paywalled history. No sponsored placements, ever.
+          </p>
+          <Link
+            href="/about"
+            className="accent-link"
+            style={{ fontSize: '0.875rem', display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}
+          >
+            Learn more <ArrowRight size={14} strokeWidth={2} />
+          </Link>
+        </div>
       </section>
 
-      {/* ── How it works ── */}
+      {/* How it works */}
       <section
         style={{
           maxWidth: 800,
-          margin: '0 auto 4rem',
+          margin: '0 auto 5rem',
           padding: '0 1.5rem',
-          textAlign: 'center',
         }}
       >
-        <h2
+        <div
           style={{
-            fontFamily: "'Sora', sans-serif",
-            fontWeight: 700,
-            fontSize: '1.25rem',
-            marginBottom: '1.5rem',
+            borderTop: '1px solid var(--border)',
+            paddingTop: '3rem',
+            textAlign: 'center',
           }}
         >
-          How It Works
-        </h2>
-        <div className="grid-howitworks">
-          {[
-            {
-              step: '1',
-              title: 'Prices Get Logged',
-              desc: `Every day, our system checks prices across ${stats.totalRetailers} Canadian retailers.`,
-            },
-            {
-              step: '2',
-              title: 'History Builds Up',
-              desc: 'Over time you get a real price chart — so you can tell a genuine drop from a fake sale.',
-            },
-            {
-              step: '3',
-              title: 'You Buy Smarter',
-              desc: 'Compare the same product across stores, or set a price alert and get emailed when it drops.',
-            },
-          ].map((item) => (
-            <div key={item.step}>
-              <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: '50%',
-                  background: 'var(--accent-glow)',
-                  border: '1px solid var(--accent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto 0.75rem',
-                  fontFamily: "'Sora', sans-serif",
-                  fontWeight: 700,
-                  color: 'var(--accent)',
-                  fontSize: '0.875rem',
-                }}
-              >
-                {item.step}
+          <h2
+            className={serif.className}
+            style={{
+              fontWeight: 400,
+              fontSize: '1.75rem',
+              marginBottom: '2rem',
+              letterSpacing: '-0.01em',
+              fontStyle: 'italic',
+            }}
+          >
+            How it works
+          </h2>
+          <div className="grid-howitworks">
+            {[
+              {
+                step: '1',
+                title: 'Prices get logged',
+                desc: 'Every day, our system records prices across the Canadian retailers we cover.',
+              },
+              {
+                step: '2',
+                title: 'History builds up',
+                desc: 'Over time you get a real price chart, so you can tell a genuine drop from a fake sale.',
+              },
+              {
+                step: '3',
+                title: 'You decide when to buy',
+                desc: 'Compare the same product across stores, or set a price alert and get emailed when it drops.',
+              },
+            ].map((item) => (
+              <div key={item.step}>
+                <div
+                  className={serif.className}
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '50%',
+                    background: 'var(--accent-glow)',
+                    border: '1px solid var(--accent)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 0.875rem',
+                    fontWeight: 400,
+                    color: 'var(--accent)',
+                    fontSize: '1.125rem',
+                    fontStyle: 'italic',
+                  }}
+                >
+                  {item.step}
+                </div>
+                <p
+                  style={{
+                    fontWeight: 600,
+                    marginBottom: '0.375rem',
+                    fontSize: '0.9375rem',
+                  }}
+                >
+                  {item.title}
+                </p>
+                <p
+                  style={{
+                    fontSize: '0.8125rem',
+                    color: 'var(--text-secondary)',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {item.desc}
+                </p>
               </div>
-              <p
-                style={{
-                  fontFamily: "'Sora', sans-serif",
-                  fontWeight: 600,
-                  marginBottom: '0.25rem',
-                }}
-              >
-                {item.title}
-              </p>
-              <p
-                style={{
-                  fontSize: '0.8125rem',
-                  color: 'var(--text-secondary)',
-                  lineHeight: 1.5,
-                }}
-              >
-                {item.desc}
-              </p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* ── Footer blurb ── */}
+      {/* Email signup — demoted from earlier in the page */}
       <section
         style={{
           maxWidth: 600,
           margin: '0 auto 4rem',
+          padding: '0 1.5rem',
+        }}
+      >
+        <EmailSignup />
+      </section>
+
+      {/* Footer blurb */}
+      <section
+        style={{
+          maxWidth: 640,
+          margin: '0 auto 5rem',
           padding: '0 1.5rem',
           textAlign: 'center',
         }}
@@ -392,191 +702,15 @@ export default async function HomePage() {
             fontSize: '0.8125rem',
             color: 'var(--text-secondary)',
             lineHeight: 1.7,
+            fontStyle: 'italic',
           }}
         >
-          Built in Quebec. TrackAura is an independent price tracker — not affiliated with any retailer.{' '}
-          <Link href="/about" style={{ color: 'var(--accent)' }}>
-            Learn more →
+          Built in Quebec. TrackAura is an independent price tracker, not affiliated with any retailer.{' '}
+          <Link href="/about" style={{ color: 'var(--accent)', fontStyle: 'normal' }}>
+            Learn more &rarr;
           </Link>
         </p>
       </section>
     </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────────
-   Featured product card — inline, uses same .card + .grid-products
-   classes as the rest of the homepage.
-   ──────────────────────────────────────────────────────────────────────── */
-
-function FeaturedCard({ product }: { product: HomeFeaturedProduct }) {
-  return (
-    <Link
-      href={`/p/${product.slug}`}
-      className="card"
-      style={{
-        textDecoration: 'none',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
-      <div
-        style={{
-          aspectRatio: '4 / 3',
-          borderBottom: '1px solid var(--border)',
-          background:
-            'linear-gradient(135deg, var(--bg-card), var(--bg-primary))',
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        {product.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={product.imageUrl}
-            alt={product.name}
-            loading="lazy"
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              padding: '1rem',
-            }}
-          />
-        ) : (
-          <div
-            style={{
-              display: 'flex',
-              height: '100%',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '0.625rem',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            No image
-          </div>
-        )}
-        {product.isAtl && (
-          <span
-            style={{
-              position: 'absolute',
-              top: '0.5rem',
-              left: '0.5rem',
-              fontSize: '0.625rem',
-              fontWeight: 700,
-              fontFamily: "'Sora', sans-serif",
-              textTransform: 'uppercase',
-              padding: '0.25rem 0.5rem',
-              borderRadius: 6,
-              background: 'rgba(0, 229, 160, 0.15)',
-              border: '1px solid rgba(0, 229, 160, 0.4)',
-              color: 'var(--accent)',
-              backdropFilter: 'blur(4px)',
-            }}
-          >
-            ATL
-          </span>
-        )}
-        <span
-          style={{
-            position: 'absolute',
-            top: '0.5rem',
-            right: '0.5rem',
-            fontSize: '0.625rem',
-            fontWeight: 700,
-            fontFamily: "'Sora', sans-serif",
-            textTransform: 'uppercase',
-            padding: '0.25rem 0.5rem',
-            borderRadius: 6,
-            background: 'rgba(56, 189, 248, 0.15)',
-            border: '1px solid rgba(56, 189, 248, 0.4)',
-            color: '#38bdf8',
-            backdropFilter: 'blur(4px)',
-          }}
-        >
-          −{Math.round(product.dropPct)}%
-        </span>
-      </div>
-      <div
-        style={{
-          padding: '0.75rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.5rem',
-          flex: 1,
-        }}
-      >
-        {product.brand && (
-          <p
-            style={{
-              fontSize: '0.6875rem',
-              color: 'var(--text-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-              fontFamily: "'Sora', sans-serif",
-            }}
-          >
-            {product.brand}
-          </p>
-        )}
-        <p
-          style={{
-            fontSize: '0.8125rem',
-            fontWeight: 600,
-            color: 'var(--text-primary)',
-            lineHeight: 1.4,
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}
-        >
-          {product.name}
-        </p>
-        <div
-          style={{
-            marginTop: 'auto',
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            gap: '0.5rem',
-          }}
-        >
-          <span
-            style={{
-              fontSize: '1.125rem',
-              fontWeight: 700,
-              color: 'var(--accent)',
-              fontFamily: "'Sora', sans-serif",
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {fmtPrice(product.bestPrice)}
-          </span>
-          <span
-            style={{
-              fontSize: '0.6875rem',
-              color: 'var(--text-secondary)',
-              textDecoration: 'line-through',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {fmtPrice(product.allTimeHigh)}
-          </span>
-        </div>
-        {product.bestRetailerName && (
-          <p
-            style={{
-              fontSize: '0.625rem',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            at {product.bestRetailerName}
-          </p>
-        )}
-      </div>
-    </Link>
   );
 }

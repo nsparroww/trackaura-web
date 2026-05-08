@@ -31,7 +31,7 @@ export default function EmailSignup() {
         if (typeof window !== "undefined" && (window as any).gtag) {
           (window as any).gtag("event", "email_signup", {
             event_category: "engagement",
-            event_label: "price_alerts",
+            event_label: "catalog_updates",
           });
         }
       } else if (res.status === 409) {
@@ -45,24 +45,42 @@ export default function EmailSignup() {
   };
 
   return (
-    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: "2rem", textAlign: "center" }}>
-      <h3 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: "1.125rem", marginBottom: "0.5rem" }}>
-        {"\uD83D\uDD14 Price Drop Alerts"}
-      </h3>
-      <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginBottom: "1.25rem", lineHeight: 1.5 }}>
-        Get emailed when prices drop on the products you care about. Set alerts on any product page, or sign up below for weekly deal digests.
+    <div style={{ textAlign: "center", padding: "1rem 0" }}>
+      <p
+        style={{
+          fontSize: "0.6875rem",
+          color: "var(--text-secondary)",
+          textTransform: "uppercase",
+          letterSpacing: "0.15em",
+          fontWeight: 500,
+          marginBottom: "0.75rem",
+        }}
+      >
+        Stay current
+      </p>
+      <p
+        style={{
+          color: "var(--text-secondary)",
+          fontSize: "0.875rem",
+          marginBottom: "1.25rem",
+          lineHeight: 1.6,
+          maxWidth: 480,
+          margin: "0 auto 1.25rem",
+        }}
+      >
+        Set price alerts on any entry, or subscribe for periodic catalog updates by email.
       </p>
 
       {status === "done" ? (
-        <p style={{ color: "var(--accent)", fontWeight: 600, fontSize: "0.9375rem" }}>
-          {"\u2713 You're in! You'll receive price drop alerts by email."}
+        <p style={{ color: "var(--accent)", fontWeight: 500, fontSize: "0.9375rem" }}>
+          {"\u2713 You're subscribed. Confirmation on its way."}
         </p>
       ) : status === "exists" ? (
-        <p style={{ color: "var(--accent)", fontWeight: 600, fontSize: "0.9375rem" }}>
-          {"\u2713 You're already signed up! Check any product page to set specific price alerts."}
+        <p style={{ color: "var(--accent)", fontWeight: 500, fontSize: "0.9375rem" }}>
+          {"\u2713 You're already subscribed. Set per-entry alerts on any product page."}
         </p>
       ) : (
-        <div style={{ display: "flex", gap: "0.5rem", maxWidth: 440, margin: "0 auto" }}>
+        <div style={{ display: "flex", gap: "0.5rem", maxWidth: 420, margin: "0 auto" }}>
           <input
             type="email"
             value={email}
@@ -71,24 +89,28 @@ export default function EmailSignup() {
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             style={{
               flex: 1,
-              padding: "0.625rem 1rem",
+              padding: "0.5625rem 0.875rem",
               background: "var(--bg-primary)",
               border: "1px solid var(--border)",
-              borderRadius: 8,
+              borderRadius: 6,
               color: "var(--text-primary)",
               fontSize: "0.875rem",
               outline: "none",
-              fontFamily: "'DM Sans', sans-serif",
             }}
           />
-          <button onClick={handleSubmit} disabled={status === "saving"} className="btn-primary" style={{ whiteSpace: "nowrap" }}>
-            {status === "saving" ? "..." : "Sign Up"}
+          <button
+            onClick={handleSubmit}
+            disabled={status === "saving"}
+            className="btn-primary"
+            style={{ whiteSpace: "nowrap", fontSize: "0.875rem", padding: "0.5625rem 1.125rem" }}
+          >
+            {status === "saving" ? "..." : "Subscribe"}
           </button>
         </div>
       )}
 
       {status === "error" && (
-        <p style={{ color: "var(--danger)", fontSize: "0.8125rem", marginTop: "0.5rem" }}>
+        <p style={{ color: "var(--danger)", fontSize: "0.8125rem", marginTop: "0.625rem" }}>
           Something went wrong. Try again.
         </p>
       )}

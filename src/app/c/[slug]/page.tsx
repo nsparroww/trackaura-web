@@ -5,10 +5,35 @@ import {
   getCategoryViewModel,
   type CategoryViewModel,
 } from '@/lib/queries/category';
+import { getCategoryEntityViewModel } from '@/lib/queries/category-entity';
+import { getCategoryEntityConfig } from '@/lib/category-entity-map';
 
 type Params = { slug: string };
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trackaura.com';
+
+type LoadedCategory = {
+  cat: CategoryViewModel;
+  routePrefix: string;
+};
+
+async function loadCategory(slug: string): Promise<LoadedCategory | null> {
+  // Migrated verticals: try the canonical_entities RPC first.
+  const entityConfig = getCategoryEntityConfig(slug);
+  if (entityConfig) {
+    const cat = await getCategoryEntityViewModel(
+      slug,
+      entityConfig.entityType,
+    );
+    if (cat) return { cat, routePrefix: entityConfig.routePrefix };
+    // Fall through to v0 if the RPC errors or returns nothing. Protects
+    // the live site during the migration window.
+  }
+  // Unmigrated verticals (and migration fallback): canonical_products path.
+  const cat = await getCategoryViewModel(slug);
+  if (!cat) return null;
+  return { cat, routePrefix: '/p' };
+}
 
 export async function generateMetadata({
   params,
@@ -16,25 +41,28 @@ export async function generateMetadata({
   params: Promise<Params>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const cat = await getCategoryViewModel(slug);
-  if (!cat) return { title: 'Category not found · TrackAura' };
+  const loaded = await loadCategory(slug);
+  if (!loaded) return { title: 'Category not found - TrackAura' };
+  const { cat } = loaded;
 
   return {
-    title: `${cat.name} — Live Prices in Canada · TrackAura`,
+    title: `${cat.name} - Live Prices in Canada - TrackAura`,
     description: `Compare live prices for ${cat.stats.totalProducts.toLocaleString()} ${cat.name.toLowerCase()} across Canadian retailers. Price history, deal alerts, and all-time-low tracking.`,
     alternates: { canonical: `${SITE}/c/${slug}` },
     openGraph: {
-      title: `${cat.name} — Live Prices in Canada`,
-      description: `${cat.stats.totalProducts.toLocaleString()} products · ${cat.stats.atLowest} at all-time low`,
+      title: `${cat.name} - Live Prices in Canada`,
+      description: `${cat.stats.totalProducts.toLocaleString()} products. ${cat.stats.atLowest} at all-time low.`,
       type: 'website',
       url: `${SITE}/c/${slug}`,
     },
   };
 }
 
-function buildCollectionJsonLd(cat: CategoryViewModel) {
-  // Only top 20 products go into the ItemList — enough for Google to
-  // crawl internal links without bloating the HTML payload.
+function buildCollectionJsonLd(
+  cat: CategoryViewModel,
+  routePrefix: string,
+) {
+  // Top 20 in-stock priced products go into the ItemList for crawler hints.
   const topProducts = cat.products
     .filter((p) => p.inStock && p.bestPrice != null)
     .slice(0, 20);
@@ -50,7 +78,7 @@ function buildCollectionJsonLd(cat: CategoryViewModel) {
       itemListElement: topProducts.map((p, i) => ({
         '@type': 'ListItem',
         position: i + 1,
-        url: `${SITE}/p/${p.slug}`,
+        url: `${SITE}${routePrefix}/${p.slug}`,
         name: p.name,
       })),
     },
@@ -58,6 +86,7 @@ function buildCollectionJsonLd(cat: CategoryViewModel) {
 }
 
 function buildBreadcrumbJsonLd(cat: CategoryViewModel) {
+  // Matches ARCHITECTURE Â§7 spec: Home / Category at the list level.
   return {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
@@ -71,12 +100,6 @@ function buildBreadcrumbJsonLd(cat: CategoryViewModel) {
       {
         '@type': 'ListItem',
         position: 2,
-        name: 'Products',
-        item: `${SITE}/products`,
-      },
-      {
-        '@type': 'ListItem',
-        position: 3,
         name: cat.name,
         item: `${SITE}/c/${cat.slug}`,
       },
@@ -90,10 +113,11 @@ export default async function Page({
   params: Promise<Params>;
 }) {
   const { slug } = await params;
-  const cat = await getCategoryViewModel(slug);
-  if (!cat) notFound();
+  const loaded = await loadCategory(slug);
+  if (!loaded) notFound();
 
-  const collectionLd = buildCollectionJsonLd(cat);
+  const { cat, routePrefix } = loaded;
+  const collectionLd = buildCollectionJsonLd(cat, routePrefix);
   const breadcrumbLd = buildBreadcrumbJsonLd(cat);
 
   return (
@@ -108,7 +132,7 @@ export default async function Page({
         // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
-      <CategoryPage category={cat} />
+      <CategoryPage category={cat} entityRoutePrefix={routePrefix} />
     </>
   );
 }

@@ -9,12 +9,13 @@
    chip-slug-helpers.ts (the existing v0 source of truth) for now.
 
    Conventions (Architecture Bible §3, §7):
-     - entity_type rows in canonical_entities are: 'gpu_chip', 'gpus' today.
+     - entity_type rows in canonical_entities are: 'gpu_chip', 'gpus',
+       'cpu' today.
      - Tree traversal via parent_entity_id (bottom-up).
      - childEntityType = null  → leaf (own listings, no children section)
      - childEntityType = 'foo' → branch (children of that type, no own listings)
      - Brand prefixes apply only to slug-form normalization for clean URLs.
-       Boards/CPUs have no brand prefix to strip — URL = DB slug.
+       Boards / CPUs have no brand prefix to strip — URL = DB slug.
 
    Step-2 additions (2026-05-04):
      - pluralLabel: drives section headings, empty states, stats tile
@@ -31,15 +32,23 @@
        disambiguating suffix that natural search queries don't include
        (e.g. /chip/rtx-3060 → /chip/rtx-3060-12-gb). Keeps DB slug
        authoritative; frontend handles the alias.
+
+   Step 4 addition (2026-05-05):
+     - 'cpu' entity_type registered. 1-level vertical (no parent, no
+       children) per ARCHITECTURE.md §7 table. URL = DB slug; no brand
+       prefixes registered yet — the dbgpu-style duplicated-prefix
+       pattern that affects GPUs may not appear in CPU naming. Audit
+       slug shape after Item 4 (catalog ingest) lands and add prefixes
+       only if the data calls for it.
    ─────────────────────────────────────────────────────────────────────────── */
 
 import { BRAND_PREFIXES as GPU_CHIP_BRAND_PREFIXES } from './chip-slug-helpers';
 
 /** All entity_type values currently registered. Expand as verticals come online. */
-export type EntityType = 'gpu_chip' | 'gpus';
+export type EntityType = 'gpu_chip' | 'gpus' | 'cpu';
 
 /** All category slugs (drive /c/[slug] and category breadcrumbs). */
-export type CategorySlug = 'gpus';
+export type CategorySlug = 'gpus' | 'cpus';
 
 export type EntityTypeConfig = {
   /** URL prefix for entity detail pages, e.g. '/chip', '/board', '/cpu'. */
@@ -92,6 +101,15 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     category: 'gpus',
     cleanSlugBrandPrefixes: [],
   },
+  cpu: {
+    routePrefix: '/cpu',
+    label: 'CPU',
+    pluralLabel: 'CPUs',
+    childEntityType: null,
+    parentEntityType: null,
+    category: 'cpus',
+    cleanSlugBrandPrefixes: [],
+  },
 };
 
 export type CategoryConfig = {
@@ -110,6 +128,16 @@ export const CATEGORIES: Record<CategorySlug, CategoryConfig> = {
     topEntityType: 'gpu_chip',
     provenance:
       'Catalog data from TechPowerUp (vendored). Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
+  },
+  cpus: {
+    label: 'CPUs',
+    topEntityType: 'cpu',
+    // TODO(Item 4): replace with catalog-source-specific provenance once
+    // CPU catalog source is chosen (Intel ARK / dbgpu CPU / Wikidata).
+    // Until catalog ingest lands, this footer doesn't render anywhere
+    // because entity_type='cpu' has zero rows.
+    provenance:
+      'Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
   },
 };
 

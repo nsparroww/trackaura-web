@@ -5,7 +5,6 @@ import { useState } from "react";
 import SearchBar from "@/components/SearchBar";
 
 const NAV_LINKS = [
-  { href: "/deals", label: "Deals", accent: true },
   { href: "/trends", label: "Price Index", accent: false },
   { href: "/products", label: "Products", accent: false },
   { href: "/brands", label: "Brands", accent: false },
@@ -157,7 +156,7 @@ export default function Header() {
         </div>
       )}
 
-      {/* Mobile menu dropdown — renders the exact same NAV_LINKS as desktop
+      {/* Mobile menu dropdown - renders the exact same NAV_LINKS as desktop
           so the two navs stay in sync. Do not add extra links here without
           also adding them to NAV_LINKS above. */}
       {menuOpen && (
