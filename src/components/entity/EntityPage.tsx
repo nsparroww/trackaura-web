@@ -29,7 +29,13 @@ type Props = { entity: EntityViewModel };
    Provenance text comes from CategoryConfig - Phase 1+ collectibles
    surface "Catalog data from Scryfall" etc. without touching this file.
 
-   2026-05-08 (Bible Sec 9 honest-labeling, this commit):
+   Note on JSON-LD: Schema.org Product / BreadcrumbList JSON-LD is
+   emitted by the page route files (chip/[slug]/page.tsx etc.) via
+   buildEntityProductLd / buildEntityBreadcrumbLd in lib/entity-metadata.ts.
+   That's the architectural single source of truth; EntityPage stays
+   render-focused.
+
+   2026-05-08 (Bible Sec 9 honest-labeling):
      - On leaves, the price stat tile relabels by coverageTier:
        * tracked / well_tracked: "Lowest current"  (existing framing)
        * single_source:          "Listed price"    (drops comparison framing)
