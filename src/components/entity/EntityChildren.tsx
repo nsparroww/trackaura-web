@@ -2,38 +2,56 @@ import Link from 'next/link';
 import ClickTracker from '@/components/ClickTracker';
 import { ga4EventForRetailer } from '@/lib/affiliate';
 import type { EntityChild } from '@/lib/queries/entity';
+import {
+  getCoverageTierDisplay,
+  tierBadgeClasses,
+} from '@/lib/coverage-tier';
 
 type Props = {
   items: EntityChild[];
   entityCategory: string;
 };
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ---------------------------------------------------------------------
    EntityChildren
 
    Branch render layer. Each child gets a card with:
-     - Header: name (link to child page) + lowest current price + retailer count
-     - Inline listings list (up to 6) — retailer · price · external View link
+     - Header: name (link) + lowest current price + coverage-tier badge
+     - Inline listings list (up to 6) - retailer / price / View link
      - "+ N more" link to the child page when truncated
 
    NOT exercised by /board/[slug] (a leaf route). Lives here so Step 3
    chip-page cutover swaps `<BoardTable boards={...} />` for
    `<EntityChildren items={...} />` without writing new code at cutover
    time. If BoardTable's exact visual is preferred, port its internals
-   into this file at Step 3 instead — the contract (props shape) stays
+   into this file at Step 3 instead - the contract (props shape) stays
    the same.
 
    Truncation depth (6) is a load-time guess. Most chips have 1-12
    boards; chips with 30+ boards (rare AIB-heavy SKUs) push the page
    too long without truncation.
 
-   Step-3 (2026-05-04): each row's outbound View link now goes through
+   2026-05-08 (Bible Sec 9 honest-labeling, this commit):
+     - Per-card tier badge replaces the previous "X retailers" /
+       "X listings (stale)" text. Badge carries the trust signal
+       semantically; subtext below adds the concrete count.
+     - Lowest-price emerald styling drops to neutral when the card's
+       tier doesn't allow comparison framing (single_source,
+       historical, encyclopedic_only). On a single-source card the
+       price is real but it isn't "lowest of N" - styling shouldn't
+       imply otherwise.
+     - Per-child tier comes from the data layer's loose heuristic
+       (any active listing implies historical). Strict beyond-7d
+       check is reserved for leaf pages to avoid an N+1 query on
+       chips with 50+ boards. See queries/entity.ts.
+
+   Step-3 (2026-05-04): each row's outbound View link goes through
    <ClickTracker> for GA4. The label is the *child* entity name (each
-   row represents a different board), not the parent chip — that's
+   row represents a different board), not the parent chip - that's
    what answers "which board did the user click through on" in the
    GA4 report. Category threads through unchanged because all children
    under a parent share the parent's category.
-   ───────────────────────────────────────────────────────────────────── */
+   --------------------------------------------------------------------- */
 
 const VISIBLE_LISTINGS = 6;
 
@@ -58,6 +76,16 @@ function formatRelative(iso: string | null): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
+function childCountText(child: EntityChild): string {
+  if (child.freshRetailerCount > 0) {
+    return `${child.freshRetailerCount} retailer${child.freshRetailerCount === 1 ? '' : 's'} fresh in last 48h`;
+  }
+  if (child.listings.length > 0) {
+    return `${child.listings.length} listing${child.listings.length === 1 ? '' : 's'}, none fresh`;
+  }
+  return 'no listings';
+}
+
 export default function EntityChildren({ items, entityCategory }: Props) {
   return (
     <div className="space-y-3">
@@ -65,6 +93,10 @@ export default function EntityChildren({ items, entityCategory }: Props) {
         const href = `${child.routePrefix}/${child.cleanSlug}`;
         const visible = child.listings.slice(0, VISIBLE_LISTINGS);
         const overflow = Math.max(0, child.listings.length - visible.length);
+        const tierDisplay = getCoverageTierDisplay(child.coverageTier);
+        const priceClass = tierDisplay.allowsComparisonFraming
+          ? 'font-semibold tabular-nums text-emerald-700 dark:text-emerald-400'
+          : 'font-semibold tabular-nums text-zinc-900 dark:text-zinc-100';
 
         return (
           <article
@@ -80,7 +112,7 @@ export default function EntityChildren({ items, entityCategory }: Props) {
               </Link>
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
                 {child.lowestPrice != null ? (
-                  <span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
+                  <span className={priceClass}>
                     {formatPrice(
                       child.lowestPrice,
                       child.lowestPriceCurrency ?? 'CAD',
@@ -89,10 +121,13 @@ export default function EntityChildren({ items, entityCategory }: Props) {
                 ) : (
                   <span className="text-zinc-500">no current price</span>
                 )}
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${tierBadgeClasses(tierDisplay.tone)}`}
+                >
+                  {tierDisplay.shortLabel}
+                </span>
                 <span className="text-xs text-zinc-500">
-                  {child.retailerCount > 0
-                    ? `${child.retailerCount} retailer${child.retailerCount === 1 ? '' : 's'}`
-                    : `${child.listings.length} listing${child.listings.length === 1 ? '' : 's'} (stale)`}
+                  {childCountText(child)}
                 </span>
               </div>
             </header>
@@ -132,7 +167,7 @@ export default function EntityChildren({ items, entityCategory }: Props) {
                           price={l.currentPrice ?? 0}
                           className="text-xs text-blue-600 hover:underline dark:text-blue-400"
                         >
-                          View →
+                          View &rarr;
                         </ClickTracker>
                       )}
                     </span>
@@ -149,7 +184,7 @@ export default function EntityChildren({ items, entityCategory }: Props) {
                   href={href}
                   className="text-xs text-blue-600 hover:underline dark:text-blue-400"
                 >
-                  + {overflow} more →
+                  + {overflow} more &rarr;
                 </Link>
               </p>
             )}

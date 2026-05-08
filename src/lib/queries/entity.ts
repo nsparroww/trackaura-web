@@ -10,7 +10,7 @@ import {
 } from '@/lib/entity-config';
 import { cleanEntitySlug } from '@/lib/entity-slug-helpers';
 
-/* ───────────────────────────────────────────────────────────────────────────
+/* ---------------------------------------------------------------------
    entity.ts
 
    Generic getEntityViewModel(entityId, expectedType). Replaces the
@@ -21,19 +21,30 @@ import { cleanEntitySlug } from '@/lib/entity-slug-helpers';
        listings, no own listings.
      - Leaf entities (childEntityType null): fetch own listings, no
        children. ALSO fetch parent's attributes for display ("inherited
-       specs" — Phase-0.5 polish, 2026-05-04). The dbgpu-backfilled
+       specs" - Phase-0.5 polish, 2026-05-04). The dbgpu-backfilled
        attributes (architecture, clocks, memory, TDP, process node) all
        live on the gpu_chip parent; without inheritance, board pages
        render an empty Specifications section.
      - Stats roll up whichever set applies.
      - Breadcrumbs are walked server-side via parent_entity_id.
 
+   Honest-labeling layer (Bible Sec 9, 2026-05-08):
+     - coverageTier on every leaf and every child of a branch.
+     - Branches' own coverageTier is null - the chip itself isn't sold;
+       only its boards are. Per-child tier on each EntityChild row
+       carries the trust signal in the chip's children grid.
+     - Window split: display still uses 7d (FRESHNESS_DAYS) so a price
+       4 days stale still shows on the page; tier classification uses
+       48hr (FRESHNESS_HOURS_FOR_TIER) to align with the bar in
+       Architecture Sec 9. The page can show you a 4-day-old price
+       honestly without the page claiming "well-tracked".
+
    Live chip page is NOT touched by this module. Step 3 of the design
    doc (cutover) is the only point at which chip/[slug]/page.tsx swaps
    to using this.
-   ─────────────────────────────────────────────────────────────────────────── */
+   --------------------------------------------------------------------- */
 
-/* Types ─────────────────────────────────────────────────────────────────── */
+/* Types --------------------------------------------------------------- */
 
 export type EntityListing = {
   id: string;
@@ -51,13 +62,32 @@ export type EntityListing = {
   matchConfidence: number | null;
 };
 
+/** Per Architecture Bible Sec 9 honest-labeling. Derived from
+    freshRetailerCount (within 48hr) and price-history existence:
+      - well_tracked      N >= 3 fresh retailers
+      - tracked           N == 2 fresh retailers
+      - single_source     N == 1 fresh retailer
+      - historical        N == 0 fresh, but past prices exist
+      - encyclopedic_only N == 0 fresh, no past prices ever
+    UI obligations:
+      - well_tracked / tracked: "Lowest current" framing OK.
+      - single_source: drop "lowest" framing (no comparison being made).
+      - historical: surface as no-current-availability + past prices.
+      - encyclopedic_only: hide listings section entirely. */
+export type CoverageTier =
+  | 'well_tracked'
+  | 'tracked'
+  | 'single_source'
+  | 'historical'
+  | 'encyclopedic_only';
+
 export type EntityChild = {
   id: string;
   /** DB-form slug. */
   slug: string;
   /** Slug in clean form for URL emission. Boards/CPUs: same as slug. */
   cleanSlug: string;
-  /** Child's own entity_type — drives the URL (`${routePrefix}/${cleanSlug}`). */
+  /** Child's own entity_type - drives the URL (`${routePrefix}/${cleanSlug}`). */
   entityType: EntityType;
   /** Cached from ENTITY_TYPES[entityType].routePrefix. */
   routePrefix: string;
@@ -68,6 +98,16 @@ export type EntityChild = {
   lowestPriceCurrency: string | null;
   inStockListingCount: number;
   retailerCount: number;
+  /** Distinct retailers with a price observation within FRESHNESS_HOURS_FOR_TIER
+      (48hr). Drives coverageTier classification. May be lower than retailerCount,
+      which counts retailers with a 7d-fresh price (display freshness). */
+  freshRetailerCount: number;
+  /** See CoverageTier. For children, computed with the heuristic
+      "listings.length > 0 implies historical" - tightening to an exact
+      historical-observation query per child would require an N+1 against
+      price_observations on chip pages with 50+ boards. The leaf case
+      (EntityViewModel.coverageTier) does the strict check. */
+  coverageTier: CoverageTier;
 };
 
 export type BreadcrumbItem = {
@@ -80,7 +120,7 @@ export type EntityStats = {
   /** 0 for leaves. */
   childCount: number;
   childrenWithListingsCount: number;
-  /** All listings under this entity — children's for branches, own for leaves. */
+  /** All listings under this entity - children's for branches, own for leaves. */
   activeListingCount: number;
   inStockListingCount: number;
   retailerCount: number;
@@ -105,7 +145,7 @@ export type EntityViewModel = {
   /** Attributes fetched directly from this entity's entity_attributes rows. */
   attributes: EntityAttribute[];
   /** Attributes inherited from this entity's parent (leaves only). De-duplicated
-      against `attributes` — keys appearing in both are dropped from this list,
+      against `attributes` - keys appearing in both are dropped from this list,
       so the leaf's own attribute wins. Empty for branches and orphan leaves. */
   inheritedAttributes: EntityAttribute[];
   /** Display name of the parent entity attributes were inherited from, or null
@@ -118,10 +158,21 @@ export type EntityViewModel = {
   listings: EntityListing[];
 
   stats: EntityStats;
+
+  /** Distinct retailers with a price observation on THIS entity within
+      FRESHNESS_HOURS_FOR_TIER (48hr). For branches, always 0 - per-child
+      counts are on EntityChild.freshRetailerCount. */
+  freshRetailerCount: number;
+  /** Honest-labeling tier per Bible Sec 9. Null for branches: a chip
+      itself isn't sold, so a single tier label for the chip would either
+      lie about its boards' coverage or invent an aggregate that means
+      nothing. The trust signal lives on each EntityChild row instead. */
+  coverageTier: CoverageTier | null;
+
   lastRefreshed: string;
 };
 
-/* Constants ─────────────────────────────────────────────────────────────── */
+/* Constants ---------------------------------------------------------- */
 
 /** is_in_stock is NULL on 100% of price_observations rows (Bible Risk #19).
     Until the writer is patched, "current price" = most recent observation
@@ -130,11 +181,19 @@ export type EntityViewModel = {
 const FRESHNESS_DAYS = 7;
 const OBSERVATION_LIMIT = 10_000;
 
+/** Tier classification window. Architecture Sec 9 specifies the strengthened
+    fed criterion as "ratio of actively-stocked SKUs at N>=3 fresh observations
+    within 48 hours". Display freshness (FRESHNESS_DAYS) stays at 7d so prices
+    don't flicker on every missed scrape; this stricter window only governs
+    whether the page claims "well-tracked / tracked / single-source". */
+const FRESHNESS_HOURS_FOR_TIER = 48;
+const TIER_FRESHNESS_MS = FRESHNESS_HOURS_FOR_TIER * 3_600_000;
+
 /** Cycle defence on parent_entity_id walk. Phase 1+ trees go up to 3
-    levels (TCG: card → printing → grading); 5 leaves headroom. */
+    levels (TCG: card -> printing -> grading); 5 leaves headroom. */
 const MAX_BREADCRUMB_DEPTH = 5;
 
-/* Internal types ────────────────────────────────────────────────────────── */
+/* Internal types ----------------------------------------------------- */
 
 type ListingRow = {
   id: string;
@@ -166,7 +225,58 @@ type WalkNode = {
    The existing chip.ts also leaves this implicit. */
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
-/* Main ──────────────────────────────────────────────────────────────────── */
+/* Coverage tier helpers ---------------------------------------------- */
+
+/** Count distinct retailers whose most-recent price observation on this
+    listing-set falls within the 48hr tier window. Only listings with a
+    non-null currentPrice and a non-null lastObservedAt are eligible. */
+function countFreshRetailersFromListings(
+  listings: EntityListing[],
+): number {
+  const now = Date.now();
+  const fresh = new Set<RetailerKey>();
+  for (const l of listings) {
+    if (l.currentPrice == null) continue;
+    if (!l.lastObservedAt) continue;
+    const ageMs = now - new Date(l.lastObservedAt).getTime();
+    if (Number.isNaN(ageMs)) continue;
+    if (ageMs <= TIER_FRESHNESS_MS) fresh.add(l.retailerKey);
+  }
+  return fresh.size;
+}
+
+function classifyCoverageTier(
+  freshRetailerCount: number,
+  hasPriceHistory: boolean,
+): CoverageTier {
+  if (freshRetailerCount >= 3) return 'well_tracked';
+  if (freshRetailerCount === 2) return 'tracked';
+  if (freshRetailerCount === 1) return 'single_source';
+  return hasPriceHistory ? 'historical' : 'encyclopedic_only';
+}
+
+/** Strict historical-observation existence check. Used only by leaves
+    when freshRetailerCount === 0 AND no within-7d observation exists -
+    i.e. when the heuristic of "any currentPrice implies history" fails
+    and we need to reach beyond the display window to distinguish
+    historical from encyclopedic_only. Single COUNT query, no row fetch. */
+async function anyHistoricalObservationExists(
+  supabase: SupabaseClient,
+  listingIds: string[],
+): Promise<boolean> {
+  if (listingIds.length === 0) return false;
+  const { count, error } = await supabase
+    .from('price_observations')
+    .select('id', { count: 'exact', head: true })
+    .in('listing_id', listingIds);
+  if (error) {
+    console.error('[entity] historical observation check failed:', error);
+    return false;
+  }
+  return (count ?? 0) > 0;
+}
+
+/* Main --------------------------------------------------------------- */
 
 export async function getEntityViewModel(
   entityId: string,
@@ -239,7 +349,7 @@ export async function getEntityViewModel(
   /* 4. De-duplicate inherited against own keys (leaf's own attribute wins
         if both exist; e.g. a board with a factory boost_clock_mhz overrides
         the chip's reference clock). Then resolve the parent's display name
-        from the breadcrumb chain — the immediate parent is the second-to-
+        from the breadcrumb chain - the immediate parent is the second-to-
         last breadcrumb item ([Home, Category, ...ancestors..., Self]). */
   const ownKeys = new Set(attributes.map((a) => a.key));
   const inheritedAttributes = rawInherited.filter((a) => !ownKeys.has(a.key));
@@ -251,11 +361,40 @@ export async function getEntityViewModel(
       ? breadcrumbs[breadcrumbs.length - 2].label
       : null;
 
-  /* 5. Stats — roll up from whichever set applies. */
+  /* 5. Stats + tier classification. Stats roll up from whichever set applies.
+        Tier classification:
+          - Branches: coverageTier = null, freshRetailerCount = 0.
+            Per-child tier already computed in fetchChildren and lives on
+            each EntityChild row.
+          - Leaves: count fresh retailers within 48hr window. If zero AND
+            listings exist AND no within-7d price suggests history, fire
+            one strict historical check before classifying as
+            encyclopedic_only vs historical. */
   const stats = computeStats({ children, ownListings });
 
+  let coverageTier: CoverageTier | null;
+  let freshRetailerCount: number;
+  if (cfg.childEntityType) {
+    coverageTier = null;
+    freshRetailerCount = 0;
+  } else {
+    freshRetailerCount = countFreshRetailersFromListings(ownListings);
+    let hasPriceHistory: boolean;
+    if (ownListings.length === 0) {
+      hasPriceHistory = false;
+    } else if (ownListings.some((l) => l.currentPrice != null)) {
+      hasPriceHistory = true;
+    } else {
+      hasPriceHistory = await anyHistoricalObservationExists(
+        supabase,
+        ownListings.map((l) => l.id),
+      );
+    }
+    coverageTier = classifyCoverageTier(freshRetailerCount, hasPriceHistory);
+  }
+
   console.log(
-    `[entity] id=${entityId} type=${expectedType} children=${children.length} listings=${ownListings.length} attrs=${attributes.length} inherited=${inheritedAttributes.length}`,
+    `[entity] id=${entityId} type=${expectedType} children=${children.length} listings=${ownListings.length} attrs=${attributes.length} inherited=${inheritedAttributes.length} tier=${coverageTier ?? 'branch'} freshRetailers=${freshRetailerCount}`,
   );
 
   return {
@@ -277,11 +416,13 @@ export async function getEntityViewModel(
     children,
     listings: ownListings,
     stats,
+    freshRetailerCount,
+    coverageTier,
     lastRefreshed: new Date().toISOString(),
   };
 }
 
-/* Internals ─────────────────────────────────────────────────────────────── */
+/* Internals ---------------------------------------------------------- */
 
 async function fetchChildren(
   supabase: SupabaseClient,
@@ -357,12 +498,21 @@ async function fetchChildren(
     });
   }
 
-  /* Assemble children with per-child roll-ups. */
+  /* Assemble children with per-child roll-ups + tier classification.
+     Per-child tier uses the heuristic: any active listing implies
+     historical. The strict beyond-7d check is reserved for leaf pages
+     to avoid an N+1 query against price_observations on chips with
+     dozens of boards (Bible Protocol #14 pattern). */
   const children: EntityChild[] = childRows.map((c) => {
     const lst = listingsByChild.get(c.id) ?? [];
     const inStock = lst.filter((l) => l.currentPrice != null);
     const retailers = new Set(inStock.map((l) => l.retailerKey));
     const cheapest = inStock[0];
+
+    const childFresh = countFreshRetailersFromListings(lst);
+    const childHasHistory = lst.length > 0;
+    const childTier = classifyCoverageTier(childFresh, childHasHistory);
+
     return {
       id: String(c.id),
       slug: c.slug,
@@ -376,6 +526,8 @@ async function fetchChildren(
       lowestPriceCurrency: cheapest?.currency ?? null,
       inStockListingCount: inStock.length,
       retailerCount: retailers.size,
+      freshRetailerCount: childFresh,
+      coverageTier: childTier,
     };
   });
 
@@ -529,7 +681,7 @@ async function buildBreadcrumbs(
     { label: category.label, href: `/c/${rootCfg.category}` },
   ];
 
-  /* Walk back from root → start, emitting links for non-final items. */
+  /* Walk back from root -> start, emitting links for non-final items. */
   for (let i = chain.length - 1; i >= 0; i--) {
     const node = chain[i];
     const cfg = ENTITY_TYPES[node.entityType];

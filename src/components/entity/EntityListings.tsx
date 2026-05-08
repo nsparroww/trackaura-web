@@ -1,22 +1,43 @@
 import ClickTracker from '@/components/ClickTracker';
 import { ga4EventForRetailer } from '@/lib/affiliate';
-import type { EntityListing } from '@/lib/queries/entity';
+import type { CoverageTier, EntityListing } from '@/lib/queries/entity';
+import {
+  getCoverageTierDisplay,
+  tierBadgeClasses,
+} from '@/lib/coverage-tier';
 
 type Props = {
   listings: EntityListing[];
   entityName: string;
   entityCategory: string;
+  /** Honest-labeling tier for this leaf entity. Drives the header bar.
+      Bible Sec 9 / 2026-05-08. */
+  coverageTier: CoverageTier;
+  /** Distinct retailers fresh within 48hr - used to produce a precise
+      retailer count next to the badge ("Well tracked  -  3 fresh
+      retailers" vs the 7d-fresh count which can disagree). */
+  freshRetailerCount: number;
 };
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ---------------------------------------------------------------------
    EntityListings
 
-   Leaf render layer. One row per active listing for this entity:
+   Leaf render layer. Header bar at top with the honest-labeling tier
+   badge (Bible Sec 9). Below the header, one row per active listing:
      retailer | freshness chip | price | external View link
 
    Used by /board/[slug] today; /cpu/[slug] in Step 4 if CPUs are
    modeled as leaves. (CPUs may end up as branches under a chip-family
-   pattern — that's a Step-4 decision.)
+   pattern - that's a Step-4 decision.)
+
+   2026-05-08 (Bible Sec 9 honest-labeling, this commit):
+     - Header bar shows the coverage-tier badge + concrete retailer
+       count next to it. Replaces the implicit "if there's a Listings
+       header up in EntityPage, that's the only signal" with an
+       explicit trust signal next to the listings themselves.
+     - Per-row UI unchanged. The honesty fix lives at the section
+       level, not per-row - each row's price is genuinely current,
+       so emerald price styling stays.
 
    Step-3 (2026-05-04): outbound View link wrapped in <ClickTracker>
    so retailer clicks fire GA4 events. ClickTracker is a server-safe
@@ -29,7 +50,7 @@ type Props = {
    downstream View link is still rendered (l.url exists) and the click
    is still trackable, but the GA4 `price` dimension is 0 to signal
    "no fresh price at click time".
-   ───────────────────────────────────────────────────────────────────── */
+   --------------------------------------------------------------------- */
 
 function formatPrice(n: number, currency: string = 'CAD'): string {
   return `${currency} $${n.toLocaleString('en-CA', {
@@ -52,13 +73,46 @@ function formatRelative(iso: string | null): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
+function tierSubtext(
+  tier: CoverageTier,
+  freshRetailerCount: number,
+  totalListings: number,
+): string {
+  switch (tier) {
+    case 'well_tracked':
+    case 'tracked':
+      return `${freshRetailerCount} fresh retailer${freshRetailerCount === 1 ? '' : 's'} in last 48h`;
+    case 'single_source':
+      return '1 fresh retailer in last 48h - no comparison being made';
+    case 'historical':
+      return `${totalListings} listing${totalListings === 1 ? '' : 's'}, none observed in last 48h`;
+    case 'encyclopedic_only':
+      return 'no current price observations';
+  }
+}
+
 export default function EntityListings({
   listings,
   entityName,
   entityCategory,
+  coverageTier,
+  freshRetailerCount,
 }: Props) {
+  const tierDisplay = getCoverageTierDisplay(coverageTier);
+  const subtext = tierSubtext(coverageTier, freshRetailerCount, listings.length);
+
   return (
     <div className="overflow-hidden rounded border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      {/* Coverage-tier header bar - the trust signal lives here. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900/60 sm:px-5">
+        <span
+          className={`rounded px-2 py-0.5 text-xs font-medium ${tierBadgeClasses(tierDisplay.tone)}`}
+        >
+          {tierDisplay.fullLabel}
+        </span>
+        <span className="text-xs text-zinc-500">{subtext}</span>
+      </div>
+
       <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
         {listings.map((l) => {
           const freshnessLabel =
@@ -103,7 +157,7 @@ export default function EntityListings({
                     price={l.currentPrice ?? 0}
                     className="text-sm text-blue-600 hover:underline dark:text-blue-400"
                   >
-                    View →
+                    View &rarr;
                   </ClickTracker>
                 )}
               </div>

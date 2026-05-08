@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import { CATEGORIES, ENTITY_TYPES } from '@/lib/entity-config';
 import type { EntityViewModel } from '@/lib/queries/entity';
+import { getCoverageTierDisplay } from '@/lib/coverage-tier';
 import EntityBreadcrumbs from './EntityBreadcrumbs';
 import EntitySpecs from './EntitySpecs';
 import EntityChildren from './EntityChildren';
@@ -8,7 +9,7 @@ import EntityListings from './EntityListings';
 
 type Props = { entity: EntityViewModel };
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ---------------------------------------------------------------------
    EntityPage
 
    Generic render layer for any canonical_entities row. Replaces ChipPage
@@ -22,11 +23,24 @@ type Props = { entity: EntityViewModel };
 
    Stats strip:
      - Branch: 4 tiles (children count + listings + retailers + lowest)
-     - Leaf:   3 tiles (listings + retailers + lowest)
+     - Leaf:   3 tiles (listings + retailers + lowest/listed)
    Grid columns flip with isBranch so layout doesn't leave a gap.
 
-   Provenance text comes from CategoryConfig — Phase 1+ collectibles
+   Provenance text comes from CategoryConfig - Phase 1+ collectibles
    surface "Catalog data from Scryfall" etc. without touching this file.
+
+   2026-05-08 (Bible Sec 9 honest-labeling, this commit):
+     - On leaves, the price stat tile relabels by coverageTier:
+       * tracked / well_tracked: "Lowest current"  (existing framing)
+       * single_source:          "Listed price"    (drops comparison framing)
+       * historical:             "No current price" with "last known retail" sub
+       * encyclopedic_only:      "No retail data" sub
+     - The amber callout's copy switches by tier so a `historical`
+       leaf says "no current retail availability" rather than "all
+       listings are stale" - the bible's exact phrasing.
+     - Branches (chips) are unchanged - their tier is null because the
+       chip itself isn't sold; per-board labels in the children grid
+       carry the trust signal instead.
 
    Step-3c (2026-05-04): amber-callout and empty-state copy no longer
    include `cfg.label.toLowerCase()`. The lowercase output for
@@ -42,18 +56,18 @@ type Props = { entity: EntityViewModel };
    Phase-0.5 polish (2026-05-04): EntitySpecs now receives
    inheritedAttributes + inheritedFromName so leaf pages (boards) can
    render parent-chip specs as a second "Inherited from X" block. View
-   model populates these only for leaves with parents — branches and
+   model populates these only for leaves with parents - branches and
    orphan leaves resolve them as []/null.
 
    Phase-0.5 polish (2026-05-05): Hero image now renders when
    entity.imageUrl is present. Chip imagery landed at 96.4% via dbgpu
    the same day; previously this slot was deferred as "text-first per
-   Architecture Bible §10" which was correct only while the field was
-   universally NULL. Layout: image floats right of the title block on
-   sm+ screens, stacks above on mobile. next/image with techpowerup
+   Architecture Bible Sec 10" which was correct only while the field
+   was universally NULL. Layout: image floats right of the title block
+   on sm+ screens, stacks above on mobile. next/image with techpowerup
    allowlisted in next.config.ts; sizes constrained so a single 800px
    TPU thumb doesn't dominate the page.
-   ───────────────────────────────────────────────────────────────────── */
+   --------------------------------------------------------------------- */
 
 const MONTH_ABBREV = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -72,7 +86,7 @@ function formatPrice(n: number, currency: string = 'CAD'): string {
  *
  * Date-only strings (YYYY-MM-DD) are formatted directly without going
  * through the Date constructor, because `new Date('2025-01-30')` is
- * parsed as UTC midnight — which is the previous day in any negative
+ * parsed as UTC midnight - which is the previous day in any negative
  * UTC-offset timezone. RTX 5090's release date `2025-01-30` was
  * rendering as "Jan 29" in Eastern Time before this fix in ChipPage.
  * Logic preserved verbatim.
@@ -106,6 +120,11 @@ export default function EntityPage({ entity }: Props) {
   const hasCurrentPrices = stats.lowestPrice != null;
   const releaseDate = formatDate(entity.releaseDate);
 
+  /* Tier-driven copy for the price stat tile + amber callout. Branches
+     resolve to nulls because their tier is null. */
+  const priceTileCopy = computePriceTileCopy(entity);
+  const amberCalloutCopy = computeAmberCalloutCopy(entity);
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:py-12">
       {/* Breadcrumbs (replaces the inline nav in ChipPage today) */}
@@ -113,7 +132,7 @@ export default function EntityPage({ entity }: Props) {
         <EntityBreadcrumbs items={entity.breadcrumbs} />
       </div>
 
-      {/* Hero — title block + optional product image. Image floats right
+      {/* Hero - title block + optional product image. Image floats right
           on sm+ screens, stacks below on mobile. */}
       <header className="mb-8 sm:flex sm:items-start sm:justify-between sm:gap-6">
         <div className="min-w-0 flex-1">
@@ -123,7 +142,7 @@ export default function EntityPage({ entity }: Props) {
           <p className="mt-2 text-sm text-zinc-500">
             {[entity.brand, releaseDate ? `Released ${releaseDate}` : null]
               .filter(Boolean)
-              .join(' · ')}
+              .join(' \u00b7 ')}
           </p>
         </div>
 
@@ -143,7 +162,7 @@ export default function EntityPage({ entity }: Props) {
         )}
       </header>
 
-      {/* Stats strip — fact tiles, not verdict tiles. */}
+      {/* Stats strip - fact tiles, not verdict tiles. */}
       <section
         className={
           isBranch
@@ -173,22 +192,22 @@ export default function EntityPage({ entity }: Props) {
         />
         <Stat
           label="Retailers"
-          value={stats.retailerCount > 0 ? stats.retailerCount.toString() : '—'}
+          value={stats.retailerCount > 0 ? stats.retailerCount.toString() : '\u2014'}
           sub={stats.retailerCount === 0 ? 'no current obs' : undefined}
         />
         <Stat
-          label="Lowest current"
+          label={priceTileCopy.label}
           value={
             hasCurrentPrices
               ? formatPrice(stats.lowestPrice!, stats.lowestPriceCurrency ?? 'CAD')
-              : '—'
+              : '\u2014'
           }
-          sub={!hasCurrentPrices ? 'no current obs' : undefined}
-          highlight={hasCurrentPrices}
+          sub={priceTileCopy.sub}
+          highlight={hasCurrentPrices && priceTileCopy.highlight}
         />
       </section>
 
-      {/* Specs — own attributes plus inherited attributes from parent
+      {/* Specs - own attributes plus inherited attributes from parent
           (leaves with parent only). Self-renders nothing when both lists
           are empty. */}
       <EntitySpecs
@@ -197,16 +216,13 @@ export default function EntityPage({ entity }: Props) {
         inheritedFromName={entity.inheritedFromName}
       />
 
-      {/* No-current-prices callout. Same condition as ChipPage but
-          generalized: any active listing exists yet none have a current
-          price = catalog has the entity but observations are stale. */}
-      {!hasCurrentPrices && stats.activeListingCount > 0 && (
+      {/* No-current-prices callout. Tier-aware copy: a `historical`
+          leaf says "no current retail availability" per Bible Sec 9;
+          everything else falls back to the existing "stale" framing. */}
+      {amberCalloutCopy && (
         <div className="mb-8 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-200">
-          <p className="font-medium">No current observations.</p>
-          <p className="mt-1">
-            Every active listing here is older than 7 days. The catalog is
-            being re-scraped.
-          </p>
+          <p className="font-medium">{amberCalloutCopy.heading}</p>
+          <p className="mt-1">{amberCalloutCopy.body}</p>
         </div>
       )}
 
@@ -233,6 +249,8 @@ export default function EntityPage({ entity }: Props) {
             listings={entity.listings}
             entityName={entity.name}
             entityCategory={cfg.category}
+            coverageTier={entity.coverageTier ?? 'encyclopedic_only'}
+            freshRetailerCount={entity.freshRetailerCount}
           />
         </section>
       ) : (
@@ -242,7 +260,7 @@ export default function EntityPage({ entity }: Props) {
         />
       )}
 
-      {/* Provenance footer — earned-trust posture, no spin. Per-category
+      {/* Provenance footer - earned-trust posture, no spin. Per-category
           text via CategoryConfig.provenance. */}
       <footer className="mt-12 border-t border-zinc-200 pt-6 text-xs text-zinc-500 dark:border-zinc-800">
         <p>{category.provenance}</p>
@@ -256,6 +274,91 @@ export default function EntityPage({ entity }: Props) {
       </footer>
     </main>
   );
+}
+
+/* Tier-driven copy helpers ------------------------------------------- */
+
+type PriceTileCopy = {
+  label: string;
+  sub: string | undefined;
+  highlight: boolean;
+};
+
+function computePriceTileCopy(entity: EntityViewModel): PriceTileCopy {
+  const hasCurrentPrices = entity.stats.lowestPrice != null;
+  /* Branch (chip) - keep existing aggregate framing. The chip's tier
+     is null; per-child trust signals live in the children grid. */
+  if (entity.coverageTier == null) {
+    return {
+      label: 'Lowest current',
+      sub: hasCurrentPrices ? undefined : 'no current obs',
+      highlight: true,
+    };
+  }
+  /* Leaf - relabel by tier. */
+  const display = getCoverageTierDisplay(entity.coverageTier);
+  switch (entity.coverageTier) {
+    case 'well_tracked':
+    case 'tracked':
+      return {
+        label: 'Lowest current',
+        sub: undefined,
+        highlight: true,
+      };
+    case 'single_source':
+      return {
+        label: 'Listed price',
+        sub: 'one retailer - no comparison',
+        highlight: false,
+      };
+    case 'historical':
+      return {
+        label: 'No current price',
+        sub: 'last known retail',
+        highlight: false,
+      };
+    case 'encyclopedic_only':
+      return {
+        label: display.shortLabel,
+        sub: 'no retail data',
+        highlight: false,
+      };
+  }
+}
+
+type AmberCalloutCopy = { heading: string; body: string } | null;
+
+function computeAmberCalloutCopy(entity: EntityViewModel): AmberCalloutCopy {
+  /* Branch case - existing condition unchanged. The callout is meant
+     for the chip page where every board's listings exist but none have
+     fresh observations. */
+  if (entity.coverageTier == null) {
+    if (entity.stats.lowestPrice == null && entity.stats.activeListingCount > 0) {
+      return {
+        heading: 'No current observations.',
+        body: 'Every active listing here is older than 7 days. The catalog is being re-scraped.',
+      };
+    }
+    return null;
+  }
+  /* Leaf - tier-aware copy per Bible Sec 9. */
+  switch (entity.coverageTier) {
+    case 'historical':
+      return {
+        heading: 'No current retail availability.',
+        body: 'No Canadian retailers we track have a fresh price for this in the last 48 hours. Listings shown reflect the most recent observations we have on record.',
+      };
+    case 'encyclopedic_only':
+      /* No listings to caveat - the EmptyState already covers this. */
+      return null;
+    case 'single_source':
+      /* Only one retailer carries this. Not stale; just narrow. The
+         tier badge in EntityListings already signals this; no callout. */
+      return null;
+    case 'tracked':
+    case 'well_tracked':
+      return null;
+  }
 }
 
 function Stat({
