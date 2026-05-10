@@ -114,3 +114,19 @@ export default async function Page({
 }
 
 export const revalidate = 600;
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ISR co-requisites (Bible Protocol #37, 2026-05-09 next-session). The
+// `export const revalidate` above is silently ignored on dynamic-segment
+// routes without these two: generateStaticParams() returning [] = no
+// paths prerendered at build, dynamicParams=true = generate-and-cache
+// on first visit, serve from edge cache thereafter. Prerequisite:
+// queries/category.ts and queries/brand.ts now use createCatalogClient()
+// (cookie-free) â€” was hidden render-graph blocker analogous to
+// entity-slug.ts in Group A.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+export async function generateStaticParams() {
+  return [];
+}
+
+export const dynamicParams = true;

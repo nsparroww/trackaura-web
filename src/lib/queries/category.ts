@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createCatalogClient } from '@/lib/supabase/server';
 import { resolveRetailer, RETAILERS, type RetailerKey } from '@/lib/retailers';
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ function prettifyCategorySlug(slug: string): string {
 export async function getCategoryViewModel(
   slug: string,
 ): Promise<CategoryViewModel | null> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   // 1. Canonical products in this category — image_url filter drops the
   //    "hollow" canonicals that have no meaningful content to render.

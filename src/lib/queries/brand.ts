@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createCatalogClient } from '@/lib/supabase/server';
 import { resolveRetailer, RETAILERS, type RetailerKey } from '@/lib/retailers';
 import type { CategoryProduct } from '@/lib/queries/category';
 
@@ -73,7 +73,7 @@ async function resolveBrandVariants(
   categorySlug: string,
   brandSlug: string,
 ): Promise<{ displayName: string; variants: string[] } | null> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
   const { data } = await supabase
     .from('canonical_products')
     .select('brand')
@@ -107,7 +107,7 @@ export async function getBrandInCategoryViewModel(
   categorySlug: string,
   brandSlug: string,
 ): Promise<BrandInCategoryViewModel | null> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   // 1. Resolve brand slug → all case variants in this category.
   const resolved = await resolveBrandVariants(categorySlug, brandSlug);
