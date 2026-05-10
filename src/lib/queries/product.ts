@@ -1,5 +1,5 @@
 import { cache } from 'react';
-import { createClient } from '@/lib/supabase/server';
+import { createCatalogClient } from '@/lib/supabase/server';
 import {
   resolveRetailer,
   type RetailerConfig,
@@ -106,13 +106,17 @@ function median(values: number[]): number {
    Main query
 
    Wrapped in React's cache() so generateMetadata() and the Page
-   component share a single database round trip per render. Without
-   this, every page render fires 2× (metadata + body) × 3 queries =
-   6 database round trips. With cache(), it's 3.
+   component share a single database round trip per render.
+
+   Uses createCatalogClient() (cookie-free) instead of createClient()
+   (cookie-based) — without this, the cookies() call inside
+   createClient() forces the calling route into dynamic rendering and
+   `export const revalidate = N` is silently ignored. See
+   src/lib/supabase/server.ts for the full history.
 
    cache() scope is per-request; ISR regeneration creates a new cache
-   per regenerated page, so this doesn't compromise revalidation.
-   See https://react.dev/reference/react/cache
+   per regenerated page, so dedup works without compromising
+   revalidation. See https://react.dev/reference/react/cache
    ──────────────────────────────────────────────────────────────────── */
 
 export const getProductViewModel = cache(_getProductViewModel);
@@ -120,7 +124,7 @@ export const getProductViewModel = cache(_getProductViewModel);
 async function _getProductViewModel(
   slug: string,
 ): Promise<ProductViewModel | null> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   // 1. Canonical product
   const { data: canonical, error: canonicalErr } = await supabase

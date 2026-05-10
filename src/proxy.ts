@@ -2,22 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { isBlockedUserAgent } from "@/lib/bot-policy";
 
 // ============================================================================
-// Edge proxy — runs on every non-static, non-catalog request (see config.matcher).
+// Edge proxy — runs on every non-static request (see config.matcher below).
 //
 // Two responsibilities:
 //   1. Maintenance kill-switch (env var, no redeploy required).
 //   2. Bot blocking — returns 403 immediately, cheapest possible reject.
-//
-// IMPORTANT: catalog routes (/p, /product, /c, /chip, /board, /cpu) are
-// EXCLUDED from this middleware. Edge middleware running on a route opts
-// it out of ISR static caching — verified 2026-05-09 when getProductViewModel
-// cache() + revalidate=3600 still showed X-Vercel-Cache: MISS on every hit
-// because proxy.ts was matching /p/[slug] and forcing dynamic rendering.
-//
-// Bot policy on catalog routes is enforced via robots.txt (declarative)
-// + Vercel Firewall + Attack Challenge Mode (per ARCHITECTURE.md §7).
-// Verified AI bots (ClaudeBot, GPTBot, etc.) are EXPLICITLY ALLOWED on
-// these routes — they drive §1 user moment 5 (the machine).
 //
 // Bot policy lives in src/lib/bot-policy.ts (single source of truth shared
 // with src/app/robots.ts per ARCHITECTURE.md §13.16). Do NOT add hardcoded
@@ -25,11 +14,11 @@ import { isBlockedUserAgent } from "@/lib/bot-policy";
 // ============================================================================
 
 export function proxy(request: NextRequest) {
-  // ─────────────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────
   // Kill switch — flip MAINTENANCE_MODE=1 in Vercel env vars to instantly
   // serve a maintenance page without redeploying. Useful if costs spike
   // or a bug is found in production.
-  // ─────────────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────
   if (process.env.MAINTENANCE_MODE === "1") {
     const pathname = request.nextUrl.pathname;
     // Allow static assets and the maintenance page itself through
@@ -53,9 +42,9 @@ export function proxy(request: NextRequest) {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────
   // Bot blocking — check user agent against shared blocklist.
-  // ─────────────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────
   const userAgent = request.headers.get("user-agent") || "";
 
   // Empty or near-empty UA is almost always a bot or script.
@@ -80,20 +69,12 @@ export function proxy(request: NextRequest) {
 }
 
 // ============================================================================
-// Matcher — run proxy on all routes EXCEPT:
-//   - static assets (favicon, robots.txt, sitemap.xml, image/font extensions)
-//   - _next internals
-//   - catalog/entity routes (these need ISR caching — see file header)
-//
-// The negative lookahead excludes:
-//   _next/static, _next/image, favicon.ico, robots.txt, sitemap.xml,
-//   any *.{svg,png,jpg,jpeg,gif,webp,ico,css,js,woff,woff2},
-//   /p, /product, /c, /chip, /board, /cpu — including their subroutes
-//   (note: /api/health and /api/* still go through middleware, which is
-//    desirable for bot blocking on those endpoints).
+// Matcher — run proxy on all routes except static assets.
+// Static files don't need bot filtering (cached at the edge anyway) and
+// excluding them saves on proxy invocations.
 // ============================================================================
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|p/|product/|c/|chip/|board/|cpu/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2)$).*)",
   ],
 };
