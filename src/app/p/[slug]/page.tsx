@@ -11,7 +11,7 @@ type Params = { slug: string };
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trackaura.com';
 
-/* ─────────────────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────
    Slug resolution
 
    Background: 80.5% of canonical_products rows have a duplicated brand
@@ -35,7 +35,7 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trackaura.com';
         canonical URLs, JSON-LD, and internal links emit the clean URL.
 
    DB stays untouched. Slug rebuild (per §12 TBD) is deferred.
-   ───────────────────────────────────────────────────────────────────────── */
+   ──────────────────────────────────────────────────────────────────── */
 
 /**
  * Strip a duplicated first-segment prefix (e.g. `asus-asus-rog-x` → `asus-rog-x`).
@@ -97,7 +97,7 @@ async function resolveProduct(requestedSlug: string): Promise<Resolution> {
   return { product: null, needsRedirect: false, canonicalSlug: null };
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────
    Metadata (SEO)
 
    Targets identified from GSC top queries (2026-05-02 baseline, 0.6% CTR
@@ -118,7 +118,7 @@ async function resolveProduct(requestedSlug: string): Promise<Resolution> {
        (matches comparison-intent queries directly)
      - Description includes `price history` + `price drop alerts` language
        (matches `canada computers price history` and intent-to-track queries)
-   ───────────────────────────────────────────────────────────────────────── */
+   ──────────────────────────────────────────────────────────────────── */
 
 export async function generateMetadata({
   params,
@@ -166,14 +166,14 @@ export async function generateMetadata({
   };
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────
    JSON-LD builders
 
    Google reads these as structured data and uses them to render rich
    product snippets in search results (price, availability, brand,
    breadcrumbs). See:
    https://developers.google.com/search/docs/appearance/structured-data/product
-   ───────────────────────────────────────────────────────────────────────── */
+   ──────────────────────────────────────────────────────────────────── */
 
 function buildProductJsonLd(product: ProductViewModel) {
   const url = `${SITE}/p/${product.slug}`;
@@ -254,7 +254,7 @@ function buildBreadcrumbJsonLd(product: ProductViewModel) {
   };
 }
 
-/* ───────────────────────────────────────────────────────────────────────── */
+/* ──────────────────────────────────────────────────────────────────── */
 
 export default async function Page({
   params,
@@ -312,6 +312,14 @@ export default async function Page({
   );
 }
 
-// Revalidate every 5 minutes — scraper cadence is slower than this,
-// so no need to hit the DB on every pageview.
-export const revalidate = 300;
+// Revalidate every hour. Bumped from 5min on 2026-05-09 in response to
+// AI-bot crawl wave (76K edge requests / 12hr from ClaudeBot, GPTBot,
+// Amazonbot, AppleBot et al.) saturating Supabase Nano-tier connections.
+// 5-min ISR was being missed on every unique slug because bots crawl
+// breadth-first; 60-min window means the first bot to hit a slug
+// populates the cache for the next hour of bot traffic on that slug.
+// Browser users still get fresh data via ISR — 1hr lag on canonical
+// product info is well within acceptable freshness for a price tracker
+// (scraper cadence is hourly, retailer pricing rarely changes faster
+// than once per day in practice).
+export const revalidate = 3600;

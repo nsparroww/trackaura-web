@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import {
   resolveRetailer,
@@ -5,9 +6,9 @@ import {
   type RetailerKey,
 } from '@/lib/retailers';
 
-/* ──────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────
    Types
-   ────────────────────────────────────────────────────────────── */
+   ──────────────────────────────────────────────────────────────────── */
 
 export type RetailerSnapshot = RetailerConfig & {
   productId: number;
@@ -67,9 +68,9 @@ export type ProductViewModel = {
   lastRefreshed: string;
 };
 
-/* ──────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────
    Helpers
-   ────────────────────────────────────────────────────────────── */
+   ──────────────────────────────────────────────────────────────────── */
 
 const HISTORY_DAYS = 365;
 const PRICE_POINT_LIMIT = 50_000;
@@ -101,11 +102,22 @@ function median(values: number[]): number {
   return s[Math.floor(s.length / 2)];
 }
 
-/* ──────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────
    Main query
-   ────────────────────────────────────────────────────────────── */
 
-export async function getProductViewModel(
+   Wrapped in React's cache() so generateMetadata() and the Page
+   component share a single database round trip per render. Without
+   this, every page render fires 2× (metadata + body) × 3 queries =
+   6 database round trips. With cache(), it's 3.
+
+   cache() scope is per-request; ISR regeneration creates a new cache
+   per regenerated page, so this doesn't compromise revalidation.
+   See https://react.dev/reference/react/cache
+   ──────────────────────────────────────────────────────────────────── */
+
+export const getProductViewModel = cache(_getProductViewModel);
+
+async function _getProductViewModel(
   slug: string,
 ): Promise<ProductViewModel | null> {
   const supabase = await createClient();
@@ -165,7 +177,7 @@ export async function getProductViewModel(
     `[product] slug="${slug}" canonical=${canonical.id} retailers=${rProducts.length} price_points=${pricePoints.length}`,
   );
 
-  /* ── Dedup per retailer ────────────────────────────────────
+  /* ── Dedup per retailer ──────────────────────────────────────────
      A canonical_id can have multiple products per retailer (e.g.
      open-box + regular). Prefer the cheapest non-open-box row. */
   const productsByRetailerId = new Map<RetailerKey, (typeof rProducts)[number]>();
@@ -186,7 +198,7 @@ export async function getProductViewModel(
     if (better) productsByRetailerId.set(cfg.id, p);
   }
 
-  /* ── Per-retailer snapshots ───────────────────────────────── */
+  /* ── Per-retailer snapshots ────────────────────────────────────── */
   const cutoff24h = Date.now() - 24 * 3600 * 1000;
   const retailers: RetailerSnapshot[] = [];
   for (const [, p] of productsByRetailerId) {
@@ -218,7 +230,7 @@ export async function getProductViewModel(
   }
   retailers.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
 
-  /* ── Merged daily price history (pivot + forward-fill) ────── */
+  /* ── Merged daily price history (pivot + forward-fill) ────────── */
   const bucketsByDate = new Map<string, Map<RetailerKey, number>>();
   for (const pp of pricePoints) {
     const cfg = retailerByProductId.get(pp.product_id);
@@ -236,7 +248,7 @@ export async function getProductViewModel(
     priceHistory.push({ date, ...running });
   }
 
-  /* ── Stats ────────────────────────────────────────────────── */
+  /* ── Stats ──────────────────────────────────────────────────────── */
   const allHistoryPrices: number[] = [];
   for (const row of priceHistory) {
     for (const key of Object.keys(row)) {
@@ -269,7 +281,7 @@ export async function getProductViewModel(
   const ath = athPool.length ? Math.max(...athPool) : current;
   const medianPrice = median(allHistoryPrices.length ? allHistoryPrices : inStockPrices);
 
-  /* ── Specs: pick the richest jsonb from any linked product ── */
+  /* ── Specs: pick the richest jsonb from any linked product ───── */
   const specGroups: SpecGroup[] = (() => {
     const candidates = rProducts
       .map((p) => p.specs)
@@ -309,7 +321,7 @@ export async function getProductViewModel(
       : [];
   })();
 
-  /* ── Activity feed (10 most recent price changes) ─────────── */
+  /* ── Activity feed (10 most recent price changes) ─────────────── */
   const pointsByProduct = new Map<number, typeof pricePoints>();
   for (const pp of pricePoints) {
     if (!pointsByProduct.has(pp.product_id))
@@ -346,7 +358,7 @@ export async function getProductViewModel(
   activityItems.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   const activity = activityItems.slice(0, 10);
 
-  /* ── Breadcrumbs ──────────────────────────────────────────── */
+  /* ── Breadcrumbs ────────────────────────────────────────────────── */
   const breadcrumbs: Array<{ label: string; href: string }> = [];
   if (canonical.category)
     breadcrumbs.push({
