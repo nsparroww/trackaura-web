@@ -5,8 +5,14 @@
 // JSON value (an array of row objects) rather than a TABLE, which
 // sidesteps Supabase's server-side max-rows cap on PostgREST table
 // responses (Risk #18). data from .rpc() is the parsed array directly.
+//
+// Cookie-free (createCatalogClient) per Bible §7 ISR-eligibility note:
+// createClient() reads cookies(), forcing dynamic rendering on any
+// calling route regardless of revalidate/generateStaticParams.
+// canonical_entities and the get_category_entities_aggregated RPC are
+// public-readable so anon-key access via the cookie-free client is correct.
 
-import { createClient } from '@/lib/supabase/server';
+import { createCatalogClient } from '@/lib/supabase/server';
 import {
   resolveRetailer,
   RETAILERS,
@@ -67,7 +73,7 @@ export async function getCategoryEntityViewModel(
   categorySlug: string,
   entityType: string,
 ): Promise<CategoryViewModel | null> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
   const { data, error } = await supabase.rpc(
     'get_category_entities_aggregated',
     { p_entity_type: entityType },

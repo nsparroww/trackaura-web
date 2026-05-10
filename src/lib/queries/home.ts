@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createCatalogClient } from '@/lib/supabase/server';
 import { resolveRetailer, type RetailerKey } from '@/lib/retailers';
 import { CATEGORY_ENTITY_MAP } from '@/lib/category-entity-map';
 
@@ -114,7 +114,7 @@ function isJunkName(name: string): boolean {
    ---------------------------------------------------------------------- */
 
 export async function getHomeStats(): Promise<HomeStats> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   const [canonicalCount, retailersData, categoriesData] = await Promise.all([
     supabase
@@ -158,7 +158,7 @@ export async function getHomeStats(): Promise<HomeStats> {
 export async function getHomeCategories(
   limit: number = 12,
 ): Promise<HomeCategory[]> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   const { data, error } = await supabase.rpc('home_top_categories', {
     result_limit: limit,
@@ -191,7 +191,7 @@ export async function getHomeCategories(
 
    Threshold (isAtl OR dropPct >= 15) is intentionally strict so the
    section reflects real price intelligence rather than promotional
-   "deals". Bible Â§2: not a deals site.
+   "deals". Bible §2: not a deals site.
 */
 
 type AggregatedRow = {
@@ -212,7 +212,7 @@ type AggregatedRow = {
 export async function getHomeFeaturedEntities(
   limit: number = 8,
 ): Promise<HomeFeaturedEntity[]> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   // Dedupe entity types (multiple slugs alias to the same vertical).
   const verticals = new Map<string, { routePrefix: string }>();
@@ -286,14 +286,14 @@ export async function getHomeFeaturedEntities(
 }
 
 /* ----------------------------------------------------------------------
-   Featured deals (DEPRECATED on the homepage â€” kept for safety in case
+   Featured deals (DEPRECATED on the homepage — kept for safety in case
    another component imports it. Delete once confirmed unused.)
    ---------------------------------------------------------------------- */
 
 export async function getFeaturedDeals(
   count: number = 6,
 ): Promise<HomeFeaturedProduct[]> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   const { data, error } = await supabase.rpc('home_featured_deals', {
     candidate_limit: 80,
@@ -374,11 +374,11 @@ export async function getFeaturedDeals(
 }
 
 /* ----------------------------------------------------------------------
-   Recent price drops (DEPRECATED on the homepage â€” same notes as above)
+   Recent price drops (DEPRECATED on the homepage — same notes as above)
    ---------------------------------------------------------------------- */
 
 export async function getRecentDrops(limit: number = 6): Promise<HomeRecentDrop[]> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   const { data: points } = await supabase
     .from('price_points')

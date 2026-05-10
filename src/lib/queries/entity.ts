@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createCatalogClient } from '@/lib/supabase/server';
 import { resolveRetailer, type RetailerKey } from '@/lib/retailers';
 import { fetchEntityAttributes, type EntityAttribute } from './entity-attributes';
 import {
@@ -38,6 +38,13 @@ import { cleanEntitySlug } from '@/lib/entity-slug-helpers';
        48hr (FRESHNESS_HOURS_FOR_TIER) to align with the bar in
        Architecture Sec 9. The page can show you a 4-day-old price
        honestly without the page claiming "well-tracked".
+
+   Cookie-free (createCatalogClient) per Bible §7 ISR-eligibility note:
+     - createClient() reads cookies(), forcing dynamic rendering on any
+       calling route regardless of revalidate/generateStaticParams.
+     - Catalog reads on canonical_entities, listings, entity_attributes,
+       price_observations all have public-read RLS, so anon-key access
+       via the cookie-free client is correct.
 
    Live chip page is NOT touched by this module. Step 3 of the design
    doc (cutover) is the only point at which chip/[slug]/page.tsx swaps
@@ -222,8 +229,8 @@ type WalkNode = {
 };
 
 /* Use a permissive Supabase type until the project's generated types land.
-   The existing chip.ts also leaves this implicit. */
-type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+   The catalog client is sync (no Awaited<...> wrapper needed). */
+type SupabaseClient = ReturnType<typeof createCatalogClient>;
 
 /* Coverage tier helpers ---------------------------------------------- */
 
@@ -283,7 +290,7 @@ export async function getEntityViewModel(
   expectedType: EntityType,
 ): Promise<EntityViewModel | null> {
   const cfg = getEntityTypeConfig(expectedType);
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   /* 1. Entity row + own attributes in parallel. */
   const [entityRes, attributes] = await Promise.all([
