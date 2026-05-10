@@ -20,7 +20,7 @@ type Params = { slug: string };
 
 const ENTITY_TYPE = 'cpu' as const;
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────────
    /cpu/[slug]
 
    Step-4 route. Renders any entity_type='cpu' canonical_entities row
@@ -28,19 +28,17 @@ const ENTITY_TYPE = 'cpu' as const;
    swapped — proves the EntityPage abstraction works for a non-GPU
    vertical with zero new render code.
 
-   No CPU catalog yet (pending Item 4 — catalog source + scraper).
-   Until then resolveEntitySlug returns entityId=null for every /cpu/*
-   request because no rows of entity_type='cpu' exist, and the page
-   notFound()s. /c/cpus and /c/processors are wired in
-   category-entity-map.ts and will render an empty CategoryPage grid
-   via the new canonical_entities read path until rows land.
+   CPU catalog ingested 2026-05-09 (Intel ARK; 783 SKUs). AMD CPU
+   catalog queued in ROADMAP active queue. No scrapers know about CPUs
+   yet — every CPU page renders honest-labeling encyclopedic_only tier
+   until ROADMAP active queue Item 5 (CPU retailer linkage) ships.
 
    Bible Protocol #16: src/proxy.ts and next.config.ts redirects()
    intercept BEFORE this route handler. Confirm /cpu/* isn't matched
    by either before testing —
      git grep '/cpu' next.config.ts src/proxy.ts src/lib/bot-policy.ts
    from the trackaura-web repo root.
-   ───────────────────────────────────────────────────────────────────── */
+   ──────────────────────────────────────────────────────────────────── */
 
 const resolveCpuPage = cache(
   async (
@@ -109,3 +107,16 @@ export default async function Page({
 // Match /p/[slug], /chip/[slug], /board/[slug] cadence: scraper runs
 // are slower than 5min so don't hit the DB on every pageview.
 export const revalidate = 300;
+
+// ISR co-requisites (Bible Protocol #37, 2026-05-09 next-session). With
+// revalidate above, these engage on-demand-cached ISR: empty array = no
+// paths prerendered at build, dynamicParams=true = generate-and-cache
+// on first visit, serve from edge cache thereafter. Prerequisite: every
+// Supabase callsite in the render graph (entity-slug.ts, entity.ts)
+// uses createCatalogClient(). Verified pattern: /chip/[slug] flipped to
+// ● after the same patch landed.
+export async function generateStaticParams() {
+  return [];
+}
+
+export const dynamicParams = true;

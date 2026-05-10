@@ -20,7 +20,7 @@ type Params = { slug: string };
 
 const ENTITY_TYPE = 'gpus' as const;
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────
    /board/[slug]
 
    Step-2 proof route. Renders any entity_type='gpus' (i.e. board)
@@ -36,7 +36,7 @@ const ENTITY_TYPE = 'gpus' as const;
    intercept BEFORE this route handler. Confirm /board/* isn't matched
    by either before testing — `git grep '/board' next.config.ts
    src/proxy.ts src/lib/bot-policy.ts`.
-   ───────────────────────────────────────────────────────────────────── */
+   ──────────────────────────────────────────────────────────────────── */
 
 const resolveBoardPage = cache(
   async (
@@ -105,3 +105,16 @@ export default async function Page({
 // Match /p/[slug] and /chip/[slug] cadence: scraper runs are slower
 // than 5min so don't hit the DB on every pageview.
 export const revalidate = 300;
+
+// ISR co-requisites (Bible Protocol #37, 2026-05-09 next-session). With
+// revalidate above, these engage on-demand-cached ISR: empty array = no
+// paths prerendered at build, dynamicParams=true = generate-and-cache
+// on first visit, serve from edge cache thereafter. Prerequisite: every
+// Supabase callsite in the render graph (entity-slug.ts, entity.ts)
+// uses createCatalogClient(). Verified pattern: /chip/[slug] flipped to
+// ● after the same patch landed.
+export async function generateStaticParams() {
+  return [];
+}
+
+export const dynamicParams = true;

@@ -1,8 +1,8 @@
-import { createClient } from '@/lib/supabase/server';
+import { createCatalogClient } from '@/lib/supabase/server';
 import { cleanEntitySlug } from './entity-slug-helpers';
 import { getEntityTypeConfig, type EntityType } from './entity-config';
 
-/* ───────────────────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────────
    entity-slug.ts
 
    Generic entity-slug resolution. Mirrors the chip-slug.ts pattern but
@@ -25,10 +25,15 @@ import { getEntityTypeConfig, type EntityType } from './entity-config';
    [nvidia-geforce-, amd-radeon-, intel-arc-] preserving today's
    /chip/rtx-5090 → DB row 'nvidia-geforce-rtx-5090' behaviour.
 
-   This module imports next/headers via the Supabase server client. Do
-   NOT import it from client components. Client components should reach
-   for entity-slug-helpers.ts directly.
-   ─────────────────────────────────────────────────────────────────────────── */
+   ISR note (Bible Protocol #37, 2026-05-09 next-session):
+   This module uses createCatalogClient() — the cookie-free Supabase
+   client — so its callsites stay eligible for ISR. Switching to
+   createClient() (cookie-aware) would force every route that calls
+   resolveEntitySlug() into dynamic rendering, regardless of
+   generateStaticParams / dynamicParams / revalidate exports on those
+   routes. Catalog routes call this on every request; cookie-free is
+   load-bearing for cache eligibility.
+   ──────────────────────────────────────────────────────────────────── */
 
 export type EntitySlugResolution = {
   /** Stringified bigint id of the canonical_entities row, or null. */
@@ -45,7 +50,7 @@ export async function resolveEntitySlug(
 ): Promise<EntitySlugResolution> {
   const cfg = getEntityTypeConfig(entityType);
   const prefixes = cfg.cleanSlugBrandPrefixes;
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   /* 1. Exact match. */
   const { data: exact, error: exactErr } = await supabase
