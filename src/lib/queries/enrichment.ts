@@ -1,10 +1,10 @@
-import { createClient } from '@/lib/supabase/server';
+import { createCatalogClient } from '@/lib/supabase/server';
 import {
   formatAttributes,
   type ChipAttribute,
 } from '@/lib/queries/chip-attributes';
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────
    Chip-parent enrichment.
 
    Joins from old-schema product page (canonical_products / products /
@@ -17,7 +17,18 @@ import {
 
    Attribute config (label/group/format) lives in chip-attributes.ts
    so the chip page and the legacy product page render identically.
-   ───────────────────────────────────────────────────────────────────── */
+
+   Uses createCatalogClient() (cookie-free) instead of createClient()
+   (cookie-based). createClient() calls cookies() from next/headers,
+   which Next.js classifies as a Dynamic Function — any render-path
+   call to it forces the calling route into dynamic rendering and
+   silently disables `export const revalidate = N`. /p/[slug] calls
+   getChipParent during render, so this query has to be cookie-free
+   to keep the page ISR-eligible. The four tables read here
+   (listings, canonical_entities, entity_attributes,
+   entity_source_mappings, canonical_products) all have public-read
+   RLS policies, so anon-key access is correct.
+   ────────────────────────────────────────────────────────────────────── */
 
 // Preserved for backward compatibility — anything importing
 // ChipParentAttribute keeps working.
@@ -55,7 +66,7 @@ export async function getChipParent(
 ): Promise<ChipParentData | null> {
   if (retailerUrls.length === 0) return null;
 
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   // 1. Find the new-schema board entity_id via URL match. Multiple URLs
   //    should agree — pick the most-common entity_id to be resilient
