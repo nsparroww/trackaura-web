@@ -204,3 +204,18 @@ function ProductRow({ product, badge, badgeColor }: { product: Product; badge?: 
     </div>
   );
 }
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ISR co-requisites (Bible Protocol #37, 2026-05-09 next-session). The
+// `export const revalidate` above is silently ignored on dynamic-segment
+// routes without these two: generateStaticParams() returning [] = no
+// paths prerendered at build, dynamicParams=true = generate-and-cache
+// on first visit, serve from edge cache thereafter. This route uses
+// pg.Pool (no Supabase cookies in the render graph), so the export
+// pair is the only fix needed.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+export async function generateStaticParams() {
+  return [];
+}
+
+export const dynamicParams = true;
