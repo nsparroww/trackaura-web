@@ -33,27 +33,37 @@ import EmailSignup from '@/components/EmailSignup';
 import {
   getHomeCategories,
   getHomeFeaturedEntities,
+  type HomeFeaturedEntity,
 } from '@/lib/queries/home';
 import { CATEGORY_ENTITY_MAP } from '@/lib/category-entity-map';
 import { CATEGORY_LABELS } from '@/types';
 
-/* ─────────────────────────────────────────────────────────────────────
-   Homepage v3.1 — editorial-dark direction (2026-05-05)
+/* ───────────────────────────────────────────────────────────────────────────
+   Homepage v3.2 — editorial-dark direction (2026-05-11)
 
-   Iteration over v3 — same overall direction, just patches:
+   v3.2 (2026-05-11):
+     - Featured-entry description: replaced hardcoded "An example of a
+       canonical entry..." placeholder with deal-context copy computed
+       from the entity's bestPrice / allTimeHigh / allTimeLow /
+       retailerCount / isAtl / dropPct fields. The placeholder was the
+       strongest "this site looks like a demo" signal on the page even
+       though the featured entity itself has been data-driven via
+       getHomeFeaturedEntities since v3.
+     - Mojibake cleanup pass on comments per WORKFLOW Phase-0.5 polish
+       discipline (cp1252 → real UTF-8 for em-dashes and section
+       dividers). No string-literal mojibake — all em-dashes in user-
+       visible strings already use HTML entities (&mdash;).
+
+   v3.1 (2026-05-05):
      - Icon map covers all currently-tracked categories. Previously
        fell through to Package for Case Fans, Routers, Network Switches,
        Hard Drives, UPS, External Storage, Desktop PCs, Webcams, TVs,
        Game Controllers. Speakers fixed from Headphones to Speaker.
-     - No structural changes; everything else carries over from v3.
 
    Reference content (Wikipedia-style featured entry, italic serif
    headings, Lucide icons, real horizontal rule dividers, sentence
    case, demoted email signup) all stay.
-
-   Bible Draft 43 captures the new Protocol #35 around
-   CATEGORY_ENTITY_MAP activation discipline — separate file change.
-   ───────────────────────────────────────────────────────────────────── */
+   ─────────────────────────────────────────────────────────────────────────── */
 
 const serif = Instrument_Serif({
   subsets: ['latin'],
@@ -126,6 +136,38 @@ function CategoryIcon({ categoryKey, size = 22 }: { categoryKey: string; size?: 
 
 const fmtPrice = (n: number) =>
   `$${Math.round(n).toLocaleString('en-CA', { maximumFractionDigits: 0 })}`;
+
+/**
+ * Build deal-context copy for the featured entry from the existing fields
+ * on HomeFeaturedEntity. Replaces the previous hardcoded "An example of a
+ * canonical entry..." text, which read as demo content even though the
+ * underlying entity was already data-driven.
+ *
+ * The featured query (getHomeFeaturedEntities) filters with `isAtl OR
+ * dropPct >= 15`, so one of the first three branches always fires in
+ * practice. The fallback exists for type safety in case that filter
+ * ever loosens.
+ */
+function buildFeaturedDescription(f: HomeFeaturedEntity): string {
+  const peakDropPct = Math.round(f.dropPct);
+  const aboveAtl = Math.max(0, f.bestPrice - f.allTimeLow);
+
+  if (f.isAtl) {
+    return peakDropPct >= 15
+      ? `Currently at its all-time tracked low — a ${peakDropPct}% drop from a tracked peak of ${fmtPrice(f.allTimeHigh)}.`
+      : `Currently at its all-time tracked low across ${f.retailerCount} retailer${f.retailerCount === 1 ? '' : 's'}.`;
+  }
+
+  if (peakDropPct >= 15 && aboveAtl > 0) {
+    return `Down ${peakDropPct}% from a tracked peak of ${fmtPrice(f.allTimeHigh)} — within ${fmtPrice(aboveAtl)} of the all-time low of ${fmtPrice(f.allTimeLow)}.`;
+  }
+
+  if (peakDropPct >= 15) {
+    return `Down ${peakDropPct}% from a tracked peak of ${fmtPrice(f.allTimeHigh)}.`;
+  }
+
+  return `Tracked across ${f.retailerCount} retailer${f.retailerCount === 1 ? '' : 's'}.`;
+}
 
 // Re-render every 15 minutes. Homepage doesn't need per-minute freshness.
 export const revalidate = 900;
@@ -353,8 +395,7 @@ export default async function HomePage() {
                   fontStyle: 'italic',
                 }}
               >
-                An example of a canonical entry. Each entry tracks current prices, full price
-                history, and the retailers where the item is available.
+                {buildFeaturedDescription(featured)}
               </p>
               <div
                 style={{
