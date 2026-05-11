@@ -205,6 +205,7 @@ export async function getBrandInCategoryViewModel(
       brand: c.brand,
       imageUrl: c.image_url,
       msrp: c.msrp != null ? Number(c.msrp) : null,
+      releaseDate: null, // v0 path doesn't surface release_date
       bestPrice,
       bestRetailerId: bestRetailerCfg?.id ?? null,
       bestRetailerName: bestRetailerCfg?.name ?? null,

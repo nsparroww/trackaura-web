@@ -1,9 +1,9 @@
 import { createCatalogClient } from '@/lib/supabase/server';
 import { resolveRetailer, RETAILERS, type RetailerKey } from '@/lib/retailers';
 
-/* ────────────────────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────────
    Types
-   ──────────────────────────────────────────────────────────────────────── */
+   ─────────────────────────────────────────────────────────────────────────── */
 
 export type CategoryProduct = {
   id: number;
@@ -12,6 +12,12 @@ export type CategoryProduct = {
   brand: string | null;
   imageUrl: string | null;
   msrp: number | null;
+  /** ISO date string when the entity was released (YYYY-MM-DD or full
+      ISO). Null when the source data didn't supply one. v0 path
+      (canonical_products) always returns null — release_date isn't
+      surfaced through this path even if the column exists; populated
+      only on the entity-aware path via getCategoryEntityViewModel. */
+  releaseDate: string | null;
   bestPrice: number | null;
   bestRetailerId: RetailerKey | null;
   bestRetailerName: string | null;
@@ -49,9 +55,9 @@ export type CategoryViewModel = {
   stats: CategoryStats;
 };
 
-/* ────────────────────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────────
    Helpers
-   ──────────────────────────────────────────────────────────────────────── */
+   ─────────────────────────────────────────────────────────────────────────── */
 
 const CANONICAL_LIMIT = 5_000;
 const PRODUCT_ROWS_LIMIT = 25_000;
@@ -86,9 +92,9 @@ function prettifyCategorySlug(slug: string): string {
     .join(' ');
 }
 
-/* ────────────────────────────────────────────────────────────────────────
-   Main query
-   ──────────────────────────────────────────────────────────────────────── */
+/* ───────────────────────────────────────────────────────────────────────────
+   Main query (v0 — canonical_products read path for unmigrated verticals)
+   ─────────────────────────────────────────────────────────────────────────── */
 
 export async function getCategoryViewModel(
   slug: string,
@@ -184,6 +190,7 @@ export async function getCategoryViewModel(
       brand: c.brand,
       imageUrl: c.image_url,
       msrp: c.msrp != null ? Number(c.msrp) : null,
+      releaseDate: null, // v0 path doesn't surface release_date
       bestPrice,
       bestRetailerId: bestRetailerCfg?.id ?? null,
       bestRetailerName: bestRetailerCfg?.name ?? null,

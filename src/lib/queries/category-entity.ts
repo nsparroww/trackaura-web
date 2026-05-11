@@ -54,6 +54,7 @@ type RpcRow = {
   brand: string | null;
   image_primary_url: string | null;
   msrp_cad: number | null;
+  release_date: string | null;
   best_price: number | null;
   best_retailer: string | null;
   retailer_count: number;
@@ -118,6 +119,7 @@ export async function getCategoryEntityViewModel(
       brand: r.brand,
       imageUrl: r.image_primary_url,
       msrp: r.msrp_cad != null ? Number(r.msrp_cad) : null,
+      releaseDate: r.release_date,
       bestPrice: r.best_price != null ? Number(r.best_price) : null,
       bestRetailerId: bestRetailerCfg?.id ?? null,
       bestRetailerName: bestRetailerCfg?.name ?? null,

@@ -30,7 +30,13 @@ const fmtCount = (n: number) => n.toLocaleString('en-CA');
 
 const PAGE_SIZE = 48;
 
-type SortKey = 'deals' | 'price-asc' | 'price-desc' | 'name-asc';
+type SortKey =
+  | 'deals'
+  | 'price-asc'
+  | 'price-desc'
+  | 'name-asc'
+  | 'date-desc'
+  | 'date-asc';
 
 /* ---------- Page ---------- */
 
@@ -75,6 +81,20 @@ export default function CategoryPage({
       return null;
     };
 
+    // Entities with no release_date sink to the end regardless of direction.
+    // releaseDate is null on the v0 path (unmigrated categories) and on
+    // entity-aware rows where the source didn't supply a date — both should
+    // degrade gracefully rather than block the sort.
+    const withDateFirst = (
+      a: CategoryProduct,
+      b: CategoryProduct,
+    ): number | null => {
+      const ad = a.releaseDate == null;
+      const bd = b.releaseDate == null;
+      if (ad !== bd) return ad ? 1 : -1;
+      return null;
+    };
+
     const sorted = [...list];
     switch (sortKey) {
       case 'price-asc':
@@ -93,6 +113,27 @@ export default function CategoryPage({
         break;
       case 'name-asc':
         sorted.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case 'date-desc':
+        // Newest first. ISO date strings compare lexicographically in date
+        // order so localeCompare on the strings is correct. Both-null falls
+        // through here (withDateFirst returns null only when both sides have
+        // a date OR both are null); guard with a final 0 to keep sort stable
+        // across the both-null case.
+        sorted.sort((a, b) => {
+          const bucketed = withDateFirst(a, b);
+          if (bucketed != null) return bucketed;
+          if (a.releaseDate == null || b.releaseDate == null) return 0;
+          return b.releaseDate.localeCompare(a.releaseDate);
+        });
+        break;
+      case 'date-asc':
+        sorted.sort((a, b) => {
+          const bucketed = withDateFirst(a, b);
+          if (bucketed != null) return bucketed;
+          if (a.releaseDate == null || b.releaseDate == null) return 0;
+          return a.releaseDate.localeCompare(b.releaseDate);
+        });
         break;
       case 'deals':
       default:
@@ -153,7 +194,7 @@ export default function CategoryPage({
 
   return (
     <div>
-      {/* Breadcrumbs: Home / Category. Matches ARCHITECTURE Â§7 spec. */}
+      {/* Breadcrumbs: Home / Category. Matches ARCHITECTURE §7 spec. */}
       <div style={{ borderBottom: `1px solid ${C.border}` }}>
         <div
           className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-1.5 px-4 py-2 text-[11px]"
@@ -347,6 +388,8 @@ export default function CategoryPage({
               <option value="price-asc">Price: low to high</option>
               <option value="price-desc">Price: high to low</option>
               <option value="name-asc">Name: A to Z</option>
+              <option value="date-desc">Release: newest first</option>
+              <option value="date-asc">Release: oldest first</option>
             </select>
           </div>
         </div>

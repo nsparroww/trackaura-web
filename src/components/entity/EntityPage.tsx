@@ -26,7 +26,7 @@ type Props = { entity: EntityViewModel };
      - Leaf:   3 tiles (listings + retailers + lowest/listed)
    Grid columns flip with isBranch so layout doesn't leave a gap.
 
-   Provenance text comes from CategoryConfig - Phase 1+ collectibles
+   Provenance text comes from CategoryConfig — Phase 1+ collectibles
    surface "Catalog data from Scryfall" etc. without touching this file.
 
    Note on JSON-LD: Schema.org Product / BreadcrumbList JSON-LD is
@@ -35,7 +35,7 @@ type Props = { entity: EntityViewModel };
    That's the architectural single source of truth; EntityPage stays
    render-focused.
 
-   2026-05-08 (Bible Sec 9 honest-labeling):
+   2026-05-08 (Bible §9 honest-labeling):
      - On leaves, the price stat tile relabels by coverageTier:
        * tracked / well_tracked: "Lowest current"  (existing framing)
        * single_source:          "Listed price"    (drops comparison framing)
@@ -43,10 +43,25 @@ type Props = { entity: EntityViewModel };
        * encyclopedic_only:      "No retail data" sub
      - The amber callout's copy switches by tier so a `historical`
        leaf says "no current retail availability" rather than "all
-       listings are stale" - the bible's exact phrasing.
-     - Branches (chips) are unchanged - their tier is null because the
+       listings are stale" — the bible's exact phrasing.
+     - Branches (chips) are unchanged — their tier is null because the
        chip itself isn't sold; per-board labels in the children grid
        carry the trust signal instead.
+
+   2026-05-11 (description rendering + Wikipedia attribution):
+     - The `description` field was always populated on the view model
+       (entity.description_md → entity.description) but never rendered
+       in this component. Latent since the entity-page system shipped;
+       only surfaced when the Intel CPU microarch ingest became the
+       first source of catalog descriptions. Adds a prose section
+       between the hero and the stats strip.
+     - When description or image was inherited from a parent (via the
+       new column-fallback in getEntityViewModel) AND the parent has
+       a `wikipedia_url` entity_attribute (surfaced as
+       entity.sourceUrl), renders a CC BY-SA attribution line below
+       the prose. License compliance is non-negotiable for line-4
+       procurement diligence; this is the minimum-viable attribution
+       surface.
 
    Step-3c (2026-05-04): amber-callout and empty-state copy no longer
    include `cfg.label.toLowerCase()`. The lowercase output for
@@ -62,13 +77,13 @@ type Props = { entity: EntityViewModel };
    Phase-0.5 polish (2026-05-04): EntitySpecs now receives
    inheritedAttributes + inheritedFromName so leaf pages (boards) can
    render parent-chip specs as a second "Inherited from X" block. View
-   model populates these only for leaves with parents - branches and
+   model populates these only for leaves with parents — branches and
    orphan leaves resolve them as []/null.
 
-   Phase-0.5 polish (2026-05-05): Hero image now renders when
+   Phase-0.5 polish (2026-05-05): Hero image renders when
    entity.imageUrl is present. Chip imagery landed at 96.4% via dbgpu
    the same day; previously this slot was deferred as "text-first per
-   Architecture Bible Sec 10" which was correct only while the field
+   Architecture Bible §10" which was correct only while the field
    was universally NULL. Layout: image floats right of the title block
    on sm+ screens, stacks above on mobile. next/image with techpowerup
    allowlisted in next.config.ts; sizes constrained so a single 800px
@@ -92,7 +107,7 @@ function formatPrice(n: number, currency: string = 'CAD'): string {
  *
  * Date-only strings (YYYY-MM-DD) are formatted directly without going
  * through the Date constructor, because `new Date('2025-01-30')` is
- * parsed as UTC midnight - which is the previous day in any negative
+ * parsed as UTC midnight — which is the previous day in any negative
  * UTC-offset timezone. RTX 5090's release date `2025-01-30` was
  * rendering as "Jan 29" in Eastern Time before this fix in ChipPage.
  * Logic preserved verbatim.
@@ -115,6 +130,25 @@ function formatDate(iso: string | null): string | null {
   });
 }
 
+/**
+ * Build the "Description and image from [Wikipedia](url) (CC BY-SA 4.0)"
+ * attribution line. Returns null when nothing was inherited (leaf owns
+ * its own image and description) or when no sourceUrl is available.
+ */
+function buildAttributionParts(
+  entity: EntityViewModel,
+): { contentNoun: string; sourceUrl: string } | null {
+  if (!entity.sourceUrl) return null;
+  const hasInhDesc = entity.descriptionInheritedFromName != null;
+  const hasInhImg = entity.imageInheritedFromName != null;
+  if (!hasInhDesc && !hasInhImg) return null;
+  let noun: string;
+  if (hasInhDesc && hasInhImg) noun = 'Description and image';
+  else if (hasInhDesc) noun = 'Description';
+  else noun = 'Image';
+  return { contentNoun: noun, sourceUrl: entity.sourceUrl };
+}
+
 export default function EntityPage({ entity }: Props) {
   const cfg = ENTITY_TYPES[entity.entityType];
   const category = CATEGORIES[cfg.category];
@@ -125,6 +159,7 @@ export default function EntityPage({ entity }: Props) {
   const { stats } = entity;
   const hasCurrentPrices = stats.lowestPrice != null;
   const releaseDate = formatDate(entity.releaseDate);
+  const attribution = buildAttributionParts(entity);
 
   /* Tier-driven copy for the price stat tile + amber callout. Branches
      resolve to nulls because their tier is null. */
@@ -138,7 +173,7 @@ export default function EntityPage({ entity }: Props) {
         <EntityBreadcrumbs items={entity.breadcrumbs} />
       </div>
 
-      {/* Hero - title block + optional product image. Image floats right
+      {/* Hero — title block + optional product image. Image floats right
           on sm+ screens, stacks below on mobile. */}
       <header className="mb-8 sm:flex sm:items-start sm:justify-between sm:gap-6">
         <div className="min-w-0 flex-1">
@@ -168,7 +203,52 @@ export default function EntityPage({ entity }: Props) {
         )}
       </header>
 
-      {/* Stats strip - fact tiles, not verdict tiles. */}
+      {/* Description prose — Wikipedia-style lead paragraph sitting
+          between the hero and the data tiles. Renders only when
+          description exists (own or inherited via getEntityViewModel
+          column-fallback). Attribution line follows when content was
+          inherited from a parent whose wikipedia_url is set. */}
+      {entity.description && (
+        <section className="mb-8 max-w-3xl">
+          <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+            {entity.description}
+          </p>
+          {attribution && (
+            <p className="mt-2 text-xs text-zinc-500">
+              {attribution.contentNoun} from{' '}
+              <a
+                href={attribution.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-zinc-400 underline-offset-2 hover:text-zinc-700 dark:hover:text-zinc-300"
+              >
+                Wikipedia
+              </a>
+              ,{' '}
+              <a
+                href="https://creativecommons.org/licenses/by-sa/4.0/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-zinc-400 underline-offset-2 hover:text-zinc-700 dark:hover:text-zinc-300"
+              >
+                CC BY-SA 4.0
+              </a>
+              .
+              {entity.descriptionInheritedFromName && (
+                <>
+                  {' '}Sourced from the{' '}
+                  <span className="text-zinc-600 dark:text-zinc-400">
+                    {entity.descriptionInheritedFromName}
+                  </span>
+                  {' '}article.
+                </>
+              )}
+            </p>
+          )}
+        </section>
+      )}
+
+      {/* Stats strip — fact tiles, not verdict tiles. */}
       <section
         className={
           isBranch
@@ -213,7 +293,7 @@ export default function EntityPage({ entity }: Props) {
         />
       </section>
 
-      {/* Specs - own attributes plus inherited attributes from parent
+      {/* Specs — own attributes plus inherited attributes from parent
           (leaves with parent only). Self-renders nothing when both lists
           are empty. */}
       <EntitySpecs
@@ -223,7 +303,7 @@ export default function EntityPage({ entity }: Props) {
       />
 
       {/* No-current-prices callout. Tier-aware copy: a `historical`
-          leaf says "no current retail availability" per Bible Sec 9;
+          leaf says "no current retail availability" per Bible §9;
           everything else falls back to the existing "stale" framing. */}
       {amberCalloutCopy && (
         <div className="mb-8 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-200">
@@ -266,7 +346,7 @@ export default function EntityPage({ entity }: Props) {
         />
       )}
 
-      {/* Provenance footer - earned-trust posture, no spin. Per-category
+      {/* Provenance footer — earned-trust posture, no spin. Per-category
           text via CategoryConfig.provenance. */}
       <footer className="mt-12 border-t border-zinc-200 pt-6 text-xs text-zinc-500 dark:border-zinc-800">
         <p>{category.provenance}</p>
@@ -292,7 +372,7 @@ type PriceTileCopy = {
 
 function computePriceTileCopy(entity: EntityViewModel): PriceTileCopy {
   const hasCurrentPrices = entity.stats.lowestPrice != null;
-  /* Branch (chip) - keep existing aggregate framing. The chip's tier
+  /* Branch (chip) — keep existing aggregate framing. The chip's tier
      is null; per-child trust signals live in the children grid. */
   if (entity.coverageTier == null) {
     return {
@@ -301,7 +381,7 @@ function computePriceTileCopy(entity: EntityViewModel): PriceTileCopy {
       highlight: true,
     };
   }
-  /* Leaf - relabel by tier. */
+  /* Leaf — relabel by tier. */
   const display = getCoverageTierDisplay(entity.coverageTier);
   switch (entity.coverageTier) {
     case 'well_tracked':
@@ -314,7 +394,7 @@ function computePriceTileCopy(entity: EntityViewModel): PriceTileCopy {
     case 'single_source':
       return {
         label: 'Listed price',
-        sub: 'one retailer - no comparison',
+        sub: 'one retailer — no comparison',
         highlight: false,
       };
     case 'historical':
@@ -335,7 +415,7 @@ function computePriceTileCopy(entity: EntityViewModel): PriceTileCopy {
 type AmberCalloutCopy = { heading: string; body: string } | null;
 
 function computeAmberCalloutCopy(entity: EntityViewModel): AmberCalloutCopy {
-  /* Branch case - existing condition unchanged. The callout is meant
+  /* Branch case — existing condition unchanged. The callout is meant
      for the chip page where every board's listings exist but none have
      fresh observations. */
   if (entity.coverageTier == null) {
@@ -347,7 +427,7 @@ function computeAmberCalloutCopy(entity: EntityViewModel): AmberCalloutCopy {
     }
     return null;
   }
-  /* Leaf - tier-aware copy per Bible Sec 9. */
+  /* Leaf — tier-aware copy per Bible §9. */
   switch (entity.coverageTier) {
     case 'historical':
       return {
@@ -355,7 +435,7 @@ function computeAmberCalloutCopy(entity: EntityViewModel): AmberCalloutCopy {
         body: 'No Canadian retailers we track have a fresh price for this in the last 48 hours. Listings shown reflect the most recent observations we have on record.',
       };
     case 'encyclopedic_only':
-      /* No listings to caveat - the EmptyState already covers this. */
+      /* No listings to caveat — the EmptyState already covers this. */
       return null;
     case 'single_source':
       /* Only one retailer carries this. Not stale; just narrow. The
