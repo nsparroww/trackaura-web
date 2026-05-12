@@ -152,6 +152,63 @@ export async function getHomeStats(): Promise<HomeStats> {
 }
 
 /* ----------------------------------------------------------------------
+   Migrated-vertical tile-count override
+
+   Bible §3 + ROADMAP Phase-0.5 polish line 89: home_top_categories RPC
+   counts from canonical_products WHERE passes_quality = true, which is
+   the right shape for v0 verticals but undercounts migrated verticals
+   (where canonical_entities is the source of truth).
+
+   Before this override:
+     graphics-cards / gpus tile reads 1,126 (v0 quality-passing)
+     cpus / processors tile reads 416 (v0 quality-passing)
+   After:
+     graphics-cards / gpus tile reads 1,621 (canonical_entities gpu_chip count)
+     cpus / processors tile reads 873 (canonical_entities cpu count)
+
+   For each distinct entity_type referenced by CATEGORY_ENTITY_MAP, we
+   issue one count-only canonical_entities query (no payload, head=true).
+   Result is keyed by entity_type so multiple aliases (e.g. graphics-cards
+   / gpus / video-cards all map to gpu_chip) share one count.
+
+   Counts for non-migrated categories (mice, keyboards, ssds, etc.) come
+   from the v0 path unchanged.
+*/
+
+async function getMigratedEntityTypeCounts(): Promise<Map<string, number>> {
+  const supabase = createCatalogClient();
+
+  // Dedupe entity types — multiple slugs alias to the same vertical.
+  const entityTypes = new Set<string>();
+  for (const cfg of Object.values(CATEGORY_ENTITY_MAP)) {
+    entityTypes.add(cfg.entityType);
+  }
+
+  const results = await Promise.all(
+    [...entityTypes].map(async (entityType) => {
+      const { count, error } = await supabase
+        .from('canonical_entities')
+        .select('id', { count: 'exact', head: true })
+        .eq('entity_type', entityType);
+      if (error) {
+        console.error(
+          `[home] canonical_entities count failed for entity_type=${entityType}:`,
+          error,
+        );
+        return [entityType, null] as const;
+      }
+      return [entityType, count ?? 0] as const;
+    }),
+  );
+
+  const out = new Map<string, number>();
+  for (const [entityType, count] of results) {
+    if (count != null) out.set(entityType, count);
+  }
+  return out;
+}
+
+/* ----------------------------------------------------------------------
    Top categories
    ---------------------------------------------------------------------- */
 
@@ -160,22 +217,33 @@ export async function getHomeCategories(
 ): Promise<HomeCategory[]> {
   const supabase = createCatalogClient();
 
-  const { data, error } = await supabase.rpc('home_top_categories', {
-    result_limit: limit,
-  });
+  const [rpcResult, entityTypeCounts] = await Promise.all([
+    supabase.rpc('home_top_categories', { result_limit: limit }),
+    getMigratedEntityTypeCounts(),
+  ]);
 
-  if (error) {
-    console.error('[home] categories RPC failed:', error);
+  if (rpcResult.error) {
+    console.error('[home] categories RPC failed:', rpcResult.error);
     return [];
   }
-  if (!data) return [];
+  if (!rpcResult.data) return [];
 
-  return (data as Array<{ category: string; cnt: number }>).map((row) => ({
-    key: row.category,
-    label: prettify(row.category),
-    count: Number(row.cnt),
-    atLowest: 0,
-  }));
+  return (rpcResult.data as Array<{ category: string; cnt: number }>).map((row) => {
+    const v0Count = Number(row.cnt);
+    // If this slug is in CATEGORY_ENTITY_MAP, override the v0 count with
+    // the canonical_entities count for its entity_type. Otherwise keep
+    // the v0 count.
+    const mapEntry = CATEGORY_ENTITY_MAP[row.category];
+    const migratedCount = mapEntry
+      ? entityTypeCounts.get(mapEntry.entityType)
+      : undefined;
+    return {
+      key: row.category,
+      label: prettify(row.category),
+      count: migratedCount ?? v0Count,
+      atLowest: 0,
+    };
+  });
 }
 
 /* ----------------------------------------------------------------------
