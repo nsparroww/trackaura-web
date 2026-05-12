@@ -1,4 +1,4 @@
-/* ───────────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────────
    entity-config.ts
 
    Single source of truth for entity-type routing. Adding a new vertical
@@ -10,12 +10,13 @@
 
    Conventions (Architecture Bible §3, §7):
      - entity_type rows in canonical_entities are: 'gpu_chip', 'gpus',
-       'cpu' today.
+       'cpu', 'cpu_microarch' today. ('monitor' exists in DB but no
+       frontend route yet — Active queue Item 7.)
      - Tree traversal via parent_entity_id (bottom-up).
      - childEntityType = null  → leaf (own listings, no children section)
      - childEntityType = 'foo' → branch (children of that type, no own listings)
      - Brand prefixes apply only to slug-form normalization for clean URLs.
-       Boards / CPUs have no brand prefix to strip — URL = DB slug.
+       Boards / CPUs / microarchs have no brand prefix to strip — URL = DB slug.
 
    Step-2 additions (2026-05-04):
      - pluralLabel: drives section headings, empty states, stats tile
@@ -34,18 +35,24 @@
        authoritative; frontend handles the alias.
 
    Step 4 addition (2026-05-05):
-     - 'cpu' entity_type registered. 1-level vertical (no parent, no
-       children) per ARCHITECTURE.md §7 table. URL = DB slug; no brand
-       prefixes registered yet — the dbgpu-style duplicated-prefix
-       pattern that affects GPUs may not appear in CPU naming. Audit
-       slug shape after Item 4 (catalog ingest) lands and add prefixes
-       only if the data calls for it.
-   ─────────────────────────────────────────────────────────────────────────── */
+     - 'cpu' entity_type registered. Was 1-level vertical; promoted to
+       2-level child of cpu_microarch in 2026-05-11 amendment below.
+
+   2026-05-11 amendment (Phase 3 of microarch migration):
+     - 'cpu_microarch' entity_type registered as branch entity above 'cpu'.
+       40 microarch entities populated (36 Intel codenames + 4 AMD Zen N
+       architectures). cpu.parentEntityType flipped from null → 'cpu_microarch'
+       so breadcrumb walks up per Bible §7: Home / Processors /
+       Microarchitecture / Item.
+     - Parent grain is per-vendor (Bible §5): Intel uses codename,
+       AMD uses architecture. Cosmetic only at this layer — slugs
+       differ (intel-tiger-lake vs amd-zen-4) but config shape is uniform.
+   ───────────────────────────────────────────────────────────────────────── */
 
 import { BRAND_PREFIXES as GPU_CHIP_BRAND_PREFIXES } from './chip-slug-helpers';
 
 /** All entity_type values currently registered. Expand as verticals come online. */
-export type EntityType = 'gpu_chip' | 'gpus' | 'cpu';
+export type EntityType = 'gpu_chip' | 'gpus' | 'cpu' | 'cpu_microarch';
 
 /** All category slugs (drive /c/[slug] and category breadcrumbs). */
 export type CategorySlug = 'gpus' | 'cpus';
@@ -101,12 +108,21 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     category: 'gpus',
     cleanSlugBrandPrefixes: [],
   },
+  cpu_microarch: {
+    routePrefix: '/cpu-microarch',
+    label: 'Microarchitecture',
+    pluralLabel: 'Microarchitectures',
+    childEntityType: 'cpu',
+    parentEntityType: null,
+    category: 'cpus',
+    cleanSlugBrandPrefixes: [],
+  },
   cpu: {
     routePrefix: '/cpu',
     label: 'CPU',
     pluralLabel: 'CPUs',
     childEntityType: null,
-    parentEntityType: null,
+    parentEntityType: 'cpu_microarch',
     category: 'cpus',
     cleanSlugBrandPrefixes: [],
   },
@@ -131,13 +147,9 @@ export const CATEGORIES: Record<CategorySlug, CategoryConfig> = {
   },
   cpus: {
     label: 'CPUs',
-    topEntityType: 'cpu',
-    // TODO(Item 4): replace with catalog-source-specific provenance once
-    // CPU catalog source is chosen (Intel ARK / dbgpu CPU / Wikidata).
-    // Until catalog ingest lands, this footer doesn't render anywhere
-    // because entity_type='cpu' has zero rows.
+    topEntityType: 'cpu_microarch',
     provenance:
-      'Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
+      'Catalog data from Intel ARK and AMD spec pages. Microarchitecture context from Wikipedia (CC BY-SA 4.0). Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
   },
 };
 
