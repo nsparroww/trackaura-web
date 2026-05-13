@@ -214,7 +214,7 @@ export default function EntityPage({ entity }: Props) {
             {entity.description}
           </p>
           {attribution && (
-            <p className="mt-2 text-xs text-zinc-500">
+            <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
               {attribution.contentNoun} from{' '}
               <a
                 href={attribution.sourceUrl}

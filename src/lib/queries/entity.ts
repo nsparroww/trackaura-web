@@ -402,7 +402,7 @@ export async function getEntityViewModel(
   const hasParent = entity.parent_entity_id != null;
   const parentId = hasParent ? String(entity.parent_entity_id) : null;
 
-  const [breadcrumbs, rawInherited, parentRow] = await Promise.all([
+  const [breadcrumbs, rawInherited, parentRow, parentWikipediaUrl] = await Promise.all([
     buildBreadcrumbs(supabase, {
       id: String(entity.id),
       entityType: entity.entity_type as EntityType,
@@ -417,15 +417,26 @@ export async function getEntityViewModel(
     parentId
       ? fetchParentColumns(supabase, parentId)
       : Promise.resolve(null as ParentColumns | null),
+    parentId
+      ? supabase
+          .from('entity_attributes')
+          .select('attribute_value')
+          .eq('entity_id', parentId)
+          .eq('attribute_key', 'wikipedia_url')
+          .maybeSingle()
+          .then((r) => (r.data?.attribute_value as string | null) ?? null)
+      : Promise.resolve(null as string | null),
   ]);
 
-  /* 4. Inheritance + attribution. wikipedia_url is preserved off
-        rawInherited as the attribution sourceUrl, then filtered out of
-        the displayed inheritedAttributes list (metadata, not a spec).
-        Image and description fall back to parent column when the leaf
-        column is null. */
-  const wikipediaSourceUrl =
-    rawInherited.find((a) => a.key === 'wikipedia_url')?.value ?? null;
+  /* 4. Inheritance + attribution. wikipedia_url lives in
+        entity_attributes but is NOT in ATTRIBUTE_CONFIG (metadata, not
+        a display spec), so fetchEntityAttributes filters it out and it
+        never reaches rawInherited. Pulled directly above as the fourth
+        Promise.all entry. The wikipedia_url filter on inheritedAttributes
+        below is retained as defense-in-depth in case the config gains a
+        wikipedia_url entry later. Image and description fall back to
+        parent column when the leaf column is null. */
+  const wikipediaSourceUrl = parentWikipediaUrl;
 
   const ownKeys = new Set(attributes.map((a) => a.key));
   const inheritedAttributes = rawInherited.filter(
