@@ -153,7 +153,10 @@ export default function EntityChildren({ items, entityCategory }: Props) {
                           {formatPrice(l.currentPrice, l.currency)}
                         </span>
                       ) : (
-                        <span className="text-zinc-500">
+                        <span
+                          className="text-zinc-500"
+                          suppressHydrationWarning
+                        >
                           last seen {formatRelative(l.lastSeen)}
                         </span>
                       )}
