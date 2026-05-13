@@ -1,4 +1,4 @@
-import { createCatalogClient } from '@/lib/supabase/server';
+﻿import { createCatalogClient } from '@/lib/supabase/server';
 import { resolveRetailer, type RetailerKey } from '@/lib/retailers';
 import { fetchEntityAttributes, type EntityAttribute } from './entity-attributes';
 import {
@@ -21,25 +21,25 @@ import { cleanEntitySlug } from '@/lib/entity-slug-helpers';
        listings, no own listings.
      - Leaf entities (childEntityType null): fetch own listings, no
        children. ALSO fetch parent's attributes for display ("inherited
-       specs" — Phase-0.5 polish, 2026-05-04). The dbgpu-backfilled
+       specs" â€” Phase-0.5 polish, 2026-05-04). The dbgpu-backfilled
        attributes (architecture, clocks, memory, TDP, process node) all
        live on the gpu_chip parent; without inheritance, board pages
        render an empty Specifications section.
      - Stats roll up whichever set applies.
      - Breadcrumbs are walked server-side via parent_entity_id.
 
-   Honest-labeling layer (Bible §9, 2026-05-08):
+   Honest-labeling layer (Bible Â§9, 2026-05-08):
      - coverageTier on every leaf and every child of a branch.
-     - Branches' own coverageTier is null — the chip itself isn't sold;
+     - Branches' own coverageTier is null â€” the chip itself isn't sold;
        only its boards are. Per-child tier on each EntityChild row
        carries the trust signal in the chip's children grid.
      - Window split: display still uses 7d (FRESHNESS_DAYS) so a price
        4 days stale still shows on the page; tier classification uses
        48hr (FRESHNESS_HOURS_FOR_TIER) to align with the bar in
-       Architecture §9. The page can show you a 4-day-old price
+       Architecture Â§9. The page can show you a 4-day-old price
        honestly without the page claiming "well-tracked".
 
-   Cookie-free (createCatalogClient) per Bible §7 ISR-eligibility note:
+   Cookie-free (createCatalogClient) per Bible Â§7 ISR-eligibility note:
      - createClient() reads cookies(), forcing dynamic rendering on any
        calling route regardless of revalidate/generateStaticParams.
      - Catalog reads on canonical_entities, listings, entity_attributes,
@@ -64,7 +64,7 @@ import { cleanEntitySlug } from '@/lib/entity-slug-helpers';
        sourceUrl is the parent's wikipedia_url entity_attribute, used
        as the attribution link target. wikipedia_url is also filtered
        out of inheritedAttributes so it doesn't accidentally render as
-       a displayable spec — it's metadata only.
+       a displayable spec â€” it's metadata only.
    --------------------------------------------------------------------- */
 
 /* Types --------------------------------------------------------------- */
@@ -85,7 +85,7 @@ export type EntityListing = {
   matchConfidence: number | null;
 };
 
-/** Per Architecture Bible §9 honest-labeling. Derived from
+/** Per Architecture Bible Â§9 honest-labeling. Derived from
     freshRetailerCount (within 48hr) and price-history existence:
       - well_tracked      N >= 3 fresh retailers
       - tracked           N == 2 fresh retailers
@@ -110,7 +110,7 @@ export type EntityChild = {
   slug: string;
   /** Slug in clean form for URL emission. Boards/CPUs: same as slug. */
   cleanSlug: string;
-  /** Child's own entity_type — drives the URL (`${routePrefix}/${cleanSlug}`). */
+  /** Child's own entity_type â€” drives the URL (`${routePrefix}/${cleanSlug}`). */
   entityType: EntityType;
   /** Cached from ENTITY_TYPES[entityType].routePrefix. */
   routePrefix: string;
@@ -126,7 +126,7 @@ export type EntityChild = {
       which counts retailers with a 7d-fresh price (display freshness). */
   freshRetailerCount: number;
   /** See CoverageTier. For children, computed with the heuristic
-      "listings.length > 0 implies historical" — tightening to an exact
+      "listings.length > 0 implies historical" â€” tightening to an exact
       historical-observation query per child would require an N+1 against
       price_observations on chip pages with 50+ boards. The leaf case
       (EntityViewModel.coverageTier) does the strict check. */
@@ -143,7 +143,7 @@ export type EntityStats = {
   /** 0 for leaves. */
   childCount: number;
   childrenWithListingsCount: number;
-  /** All listings under this entity — children's for branches, own for leaves. */
+  /** All listings under this entity â€” children's for branches, own for leaves. */
   activeListingCount: number;
   inStockListingCount: number;
   retailerCount: number;
@@ -164,7 +164,7 @@ export type EntityViewModel = {
   imageUrl: string | null;
   description: string | null;
 
-  /** Set when imageUrl was inherited from this entity's parent — carries
+  /** Set when imageUrl was inherited from this entity's parent â€” carries
       the parent's display name for attribution. Null when leaf-owned or
       when no image at all. */
   imageInheritedFromName: string | null;
@@ -180,7 +180,7 @@ export type EntityViewModel = {
   /** Attributes fetched directly from this entity's entity_attributes rows. */
   attributes: EntityAttribute[];
   /** Attributes inherited from this entity's parent (leaves only). De-duplicated
-      against `attributes` — keys appearing in both are dropped from this list,
+      against `attributes` â€” keys appearing in both are dropped from this list,
       so the leaf's own attribute wins. `wikipedia_url` is filtered out (it's
       attribution metadata, surfaced via sourceUrl rather than as a spec).
       Empty for branches and orphan leaves. */
@@ -197,10 +197,10 @@ export type EntityViewModel = {
   stats: EntityStats;
 
   /** Distinct retailers with a price observation on THIS entity within
-      FRESHNESS_HOURS_FOR_TIER (48hr). For branches, always 0 — per-child
+      FRESHNESS_HOURS_FOR_TIER (48hr). For branches, always 0 â€” per-child
       counts are on EntityChild.freshRetailerCount. */
   freshRetailerCount: number;
-  /** Honest-labeling tier per Bible §9. Null for branches: a chip
+  /** Honest-labeling tier per Bible Â§9. Null for branches: a chip
       itself isn't sold, so a single tier label for the chip would either
       lie about its boards' coverage or invent an aggregate that means
       nothing. The trust signal lives on each EntityChild row instead. */
@@ -218,7 +218,7 @@ export type EntityViewModel = {
 const FRESHNESS_DAYS = 7;
 const OBSERVATION_LIMIT = 10_000;
 
-/** Tier classification window. Architecture §9 specifies the strengthened
+/** Tier classification window. Architecture Â§9 specifies the strengthened
     fed criterion as "ratio of actively-stocked SKUs at N>=3 fresh observations
     within 48 hours". Display freshness (FRESHNESS_DAYS) stays at 7d so prices
     don't flicker on every missed scrape; this stricter window only governs
@@ -300,7 +300,7 @@ function classifyCoverageTier(
 }
 
 /** Strict historical-observation existence check. Used only by leaves
-    when freshRetailerCount === 0 AND no within-7d observation exists —
+    when freshRetailerCount === 0 AND no within-7d observation exists â€”
     i.e. when the heuristic of "any currentPrice implies history" fails
     and we need to reach beyond the display window to distinguish
     historical from encyclopedic_only. Single COUNT query, no row fetch. */
@@ -325,7 +325,7 @@ async function anyHistoricalObservationExists(
 /** Fetch parent's column-level fields needed for inheritance fallback
     (image_primary_url, description_md) and attribution display
     (display_name / canonical_name). Returns null when the parent row
-    can't be loaded — caller treats as "no inheritance possible". */
+    can't be loaded â€” caller treats as "no inheritance possible". */
 async function fetchParentColumns(
   supabase: SupabaseClient,
   parentId: string,
@@ -392,15 +392,15 @@ export async function getEntityViewModel(
   }
 
   /* 3. Breadcrumbs + parent attributes + parent columns in parallel.
-        All three are leaf-with-parent-only work; branches and orphan
-        leaves resolve them as []/null. Direct parent-row fetch is the
+        Inheritance applies to any entity with a parent (the 2026-05-12
+        amendment); branches with no parent and orphan leaves still
+        resolve them as []/null. Direct parent-row fetch is the
         source of truth for inheritedFromName + image/description
-        fallback — the breadcrumb walk halts at unregistered entity_types
+        fallback â€” the breadcrumb walk halts at unregistered entity_types
         (e.g. cpu_microarch before its frontend route ships) so it can't
         be relied on for the immediate-parent name. */
-  const isLeafWithParent =
-    !cfg.childEntityType && entity.parent_entity_id != null;
-  const parentId = isLeafWithParent ? String(entity.parent_entity_id) : null;
+  const hasParent = entity.parent_entity_id != null;
+  const parentId = hasParent ? String(entity.parent_entity_id) : null;
 
   const [breadcrumbs, rawInherited, parentRow] = await Promise.all([
     buildBreadcrumbs(supabase, {
@@ -455,7 +455,7 @@ export async function getEntityViewModel(
      walk, so it stays correct even when intermediate entity_types
      aren't registered in entity-config (the cpu_microarch case). */
   const inheritedFromName =
-    isLeafWithParent && inheritedAttributes.length > 0
+    hasParent && inheritedAttributes.length > 0
       ? parentDisplayName
       : null;
 
