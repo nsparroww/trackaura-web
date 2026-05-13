@@ -27,16 +27,21 @@ import { getEntityTypeConfig, type EntityType } from './entity-config';
         prefix prepended in a single batched query.
      3. Flag whether a redirect to the clean form is needed.
 
-   For boards (entity_type='gpus') and microarchs the prefix list is
-   empty and the resolver short-circuits after step 1 -- URL = DB slug.
-   For chips (entity_type='gpu_chip') the prefix list is
-   [nvidia-geforce-, amd-radeon-, intel-arc-] preserving today's
-   /chip/rtx-5090 -> DB row 'nvidia-geforce-rtx-5090' behaviour.
-   For CPUs (entity_type='cpu') the prefix list is [intel-, amd-] and
-   slugRewrites carry the 'core-i*' marketing-form equivalences; combined
-   they map natural search queries (/cpu/i7-8700k, /cpu/intel-core-i7-8700k,
-   /cpu/ryzen-7-7800x3d) to canonical clean URLs (/cpu/i7-8700k,
-   /cpu/ryzen-7-7800x3d).
+   Prefix lists by entity_type (source of truth: entity-config.ts +
+   chip-slug-helpers.ts):
+
+     - 'gpus' (boards): empty. URL = DB slug.
+     - 'gpu_chip': [nvidia-geforce-, amd-radeon-, intel-arc-, nvidia-,
+       amd-, intel-]. Longer (line-qualified) prefixes precede bare
+       brand prefixes due to first-match semantics in cleanEntitySlug
+       -- /chip/rtx-5090 stays canonical for nvidia-geforce-rtx-5090
+       while /chip/jetson-agx-xavier-16-gb resolves to the bare
+       nvidia- DB row (2026-05-13 amendment, Jetson/Tesla/Quadro/
+       Workstation 404 fix).
+     - 'cpu' and 'cpu_microarch': [intel-, amd-]. CPU slugs also pass
+       through slugRewrites for 'core-i*' and 'core-ultra-N-*' marketing
+       forms.
+     - 'gpus' (boards) and other leaf-only types: see entity-config.
 
    This module imports next/headers via the Supabase server client. Do
    NOT import it from client components. Client components should reach
