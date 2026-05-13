@@ -65,6 +65,26 @@ import { cleanEntitySlug } from '@/lib/entity-slug-helpers';
        as the attribution link target. wikipedia_url is also filtered
        out of inheritedAttributes so it doesn't accidentally render as
        a displayable spec â€” it's metadata only.
+
+   Lineage (predecessor/successor) — 2026-05-13:
+     - fetchLineage() reads entity_relationships for the current
+       entity and resolves each predecessor/successor edge to a
+       LineageItem (minimal display payload: id, cleanSlug,
+       routePrefix, name, releaseDate, imageUrl).
+     - Schema-permitted N edges per relationship per entity collapse
+       to at most one of each in v0 (the backfill_gpu_lineage.py
+       ingest writes one chain edge per direction). If multiple
+       arrive in v1 (forked chains, variant siblings promoted), the
+       resolver picks the last row Postgres returns — stable enough
+       until variant_of lands.
+     - Empty result is the common case today: only NVIDIA GeForce
+       desktop chips (gen 4-50 mainline) have edges. All other
+       entity_types resolve to {predecessor: null, successor: null}.
+     - Cost: two extra round-trips inside the Promise.all wrapper.
+       Not collapsed into a JOIN-style RPC because (a) the entity-
+       relationships table is small enough to make this cheap and
+       (b) keeping it client-side keeps the v1 expansion path
+       (adding variant_of, alternative_to) one-file.
    --------------------------------------------------------------------- */
 
 /* Types --------------------------------------------------------------- */
@@ -131,6 +151,26 @@ export type EntityChild = {
       price_observations on chip pages with 50+ boards. The leaf case
       (EntityViewModel.coverageTier) does the strict check. */
   coverageTier: CoverageTier;
+};
+
+/** Minimal display payload for a predecessor or successor entity.
+    Designed to render a navigation card (image + name + release year +
+    link) without re-fetching the full target view model. Price/listings
+    deliberately excluded — lineage is about chronological context, not
+    comparison. Users click through if they want price. */
+export type LineageItem = {
+  id: string;
+  /** Clean form for URL emission (brand prefixes stripped per the
+      target's entity_type config). */
+  cleanSlug: string;
+  /** Cached from ENTITY_TYPES[entityType].routePrefix for the target. */
+  routePrefix: string;
+  /** display_name with canonical_name fallback. */
+  name: string;
+  /** ISO release date for "(2022)" side context. May be null. */
+  releaseDate: string | null;
+  /** Hero image URL. May be null; the card renders a name-only state. */
+  imageUrl: string | null;
 };
 
 export type BreadcrumbItem = {
@@ -205,6 +245,15 @@ export type EntityViewModel = {
       lie about its boards' coverage or invent an aggregate that means
       nothing. The trust signal lives on each EntityChild row instead. */
   coverageTier: CoverageTier | null;
+
+  /** Predecessor on this entity's product line per entity_relationships.
+      Null when no edge exists (chain head, or lineage not yet derived
+      for this entity_type), or when the target row's entity_type isn't
+      registered in entity-config.ts. */
+  predecessor: LineageItem | null;
+  /** Successor on this entity's product line. Same null semantics as
+      predecessor (chain tail, or lineage not yet derived). */
+  successor: LineageItem | null;
 
   lastRefreshed: string;
 };
@@ -373,6 +422,94 @@ async function fetchAncestorChain(
   return chain;
 }
 
+/* Lineage fetch ------------------------------------------------------ */
+
+/** Resolve predecessor/successor edges for an entity. Two round-trips:
+    (1) read entity_relationships, (2) batch-fetch the target canonical_entities
+    rows. Targets with an unregistered entity_type are skipped (logged warn)
+    so a future entity_type without a config entry can't crash the chip page. */
+async function fetchLineage(
+  supabase: SupabaseClient,
+  entityId: string,
+): Promise<{ predecessor: LineageItem | null; successor: LineageItem | null }> {
+  const { data: edges, error: edgesErr } = await supabase
+    .from('entity_relationships')
+    .select('to_entity_id, relationship')
+    .eq('from_entity_id', entityId)
+    .in('relationship', ['predecessor', 'successor']);
+
+  if (edgesErr) {
+    console.error('[entity] lineage edge fetch failed:', edgesErr);
+    return { predecessor: null, successor: null };
+  }
+  const rows = edges ?? [];
+  if (rows.length === 0) return { predecessor: null, successor: null };
+
+  /* Schema permits N edges per (from, relationship); v0 ingest writes
+     one. If two arrive in v1 (forked chains), last row wins — stable
+     enough as a placeholder until variant_of lands. */
+  const byRel = new Map<string, string>();
+  for (const e of rows) {
+    byRel.set(e.relationship, String(e.to_entity_id));
+  }
+  const targetIds = Array.from(new Set(byRel.values()));
+
+  const { data: targets, error: tgtErr } = await supabase
+    .from('canonical_entities')
+    .select(
+      'id, slug, canonical_name, display_name, release_date, image_primary_url, entity_type',
+    )
+    .in('id', targetIds);
+
+  if (tgtErr) {
+    console.error('[entity] lineage target fetch failed:', tgtErr);
+    return { predecessor: null, successor: null };
+  }
+
+  type TargetRow = {
+    id: string | number;
+    slug: string;
+    canonical_name: string;
+    display_name: string | null;
+    release_date: string | null;
+    image_primary_url: string | null;
+    entity_type: string;
+  };
+  const targetById = new Map<string, TargetRow>();
+  for (const t of (targets ?? []) as TargetRow[]) {
+    targetById.set(String(t.id), t);
+  }
+
+  const toLineageItem = (
+    relationship: 'predecessor' | 'successor',
+  ): LineageItem | null => {
+    const tgtId = byRel.get(relationship);
+    if (!tgtId) return null;
+    const t = targetById.get(tgtId);
+    if (!t) return null;
+    if (!isRegisteredEntityType(t.entity_type)) {
+      console.warn(
+        `[entity] lineage target id=${tgtId} has unregistered entity_type='${t.entity_type}' — skipping`,
+      );
+      return null;
+    }
+    const targetCfg = getEntityTypeConfig(t.entity_type as EntityType);
+    return {
+      id: String(t.id),
+      cleanSlug: cleanEntitySlug(t.slug, targetCfg.cleanSlugBrandPrefixes),
+      routePrefix: targetCfg.routePrefix,
+      name: t.display_name ?? t.canonical_name,
+      releaseDate: t.release_date,
+      imageUrl: t.image_primary_url,
+    };
+  };
+
+  return {
+    predecessor: toLineageItem('predecessor'),
+    successor: toLineageItem('successor'),
+  };
+}
+
 /* Main --------------------------------------------------------------- */
 
 export async function getEntityViewModel(
@@ -422,18 +559,21 @@ export async function getEntityViewModel(
     ownListings = await fetchOwnListings(supabase, String(entity.id));
   }
 
-  /* 3. Breadcrumbs + parent attributes + parent columns in parallel.
+  /* 3. Breadcrumbs + parent attributes + parent columns + lineage in parallel.
         Inheritance applies to any entity with a parent (the 2026-05-12
         amendment); branches with no parent and orphan leaves still
         resolve them as []/null. Direct parent-row fetch is the
         source of truth for inheritedFromName + image/description
         fallback â€” the breadcrumb walk halts at unregistered entity_types
         (e.g. cpu_microarch before its frontend route ships) so it can't
-        be relied on for the immediate-parent name. */
+        be relied on for the immediate-parent name.
+        Lineage (predecessor/successor) is on every entity, not just
+        those with a parent — chain heads/tails have no edges and
+        resolve to {null, null} naturally. */
   const hasParent = entity.parent_entity_id != null;
   const parentId = hasParent ? String(entity.parent_entity_id) : null;
 
-  const [breadcrumbs, rawInherited, ancestors] = await Promise.all([
+  const [breadcrumbs, rawInherited, ancestors, lineage] = await Promise.all([
     buildBreadcrumbs(supabase, {
       id: String(entity.id),
       entityType: entity.entity_type as EntityType,
@@ -448,6 +588,7 @@ export async function getEntityViewModel(
     parentId
       ? fetchAncestorChain(supabase, parentId)
       : Promise.resolve([] as AncestorRow[]),
+    fetchLineage(supabase, String(entity.id)),
   ]);
 
   /* First ancestor (climbing up from the leaf) with a non-null
@@ -549,7 +690,7 @@ export async function getEntityViewModel(
   }
 
   console.log(
-    `[entity] id=${entityId} type=${expectedType} children=${children.length} listings=${ownListings.length} attrs=${attributes.length} inherited=${inheritedAttributes.length} tier=${coverageTier ?? 'branch'} freshRetailers=${freshRetailerCount} imgInh=${imageInheritedFromName ?? 'no'} descInh=${descriptionInheritedFromName ?? 'no'}`,
+    `[entity] id=${entityId} type=${expectedType} children=${children.length} listings=${ownListings.length} attrs=${attributes.length} inherited=${inheritedAttributes.length} tier=${coverageTier ?? 'branch'} freshRetailers=${freshRetailerCount} imgInh=${imageInheritedFromName ?? 'no'} descInh=${descriptionInheritedFromName ?? 'no'} lineage=${lineage.predecessor ? 'pre' : '-'}/${lineage.successor ? 'suc' : '-'}`,
   );
 
   return {
@@ -576,6 +717,8 @@ export async function getEntityViewModel(
     stats,
     freshRetailerCount,
     coverageTier,
+    predecessor: lineage.predecessor,
+    successor: lineage.successor,
     lastRefreshed: new Date().toISOString(),
   };
 }

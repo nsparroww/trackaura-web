@@ -6,6 +6,7 @@ import EntityBreadcrumbs from './EntityBreadcrumbs';
 import EntitySpecs from './EntitySpecs';
 import EntityChildren from './EntityChildren';
 import EntityListings from './EntityListings';
+import EntityLineage from './EntityLineage';
 
 type Props = { entity: EntityViewModel };
 
@@ -62,6 +63,18 @@ type Props = { entity: EntityViewModel };
        the prose. License compliance is non-negotiable for line-4
        procurement diligence; this is the minimum-viable attribution
        surface.
+
+   2026-05-13 (lineage rendering):
+     - <EntityLineage> renders predecessor / successor cards from the
+       view model, placed between EntitySpecs and the amber callout
+       so the chronological context sits adjacent to "what is this"
+       (specs) and above "what does it cost" (listings).
+     - Component self-gates: returns null when both predecessor and
+       successor are null, so v0-scope chips (NVIDIA GeForce desktop
+       only) render the section while AMD/Intel/Tesla/Quadro/Jetson
+       leave the space empty.
+     - Bible §7 lists "Lineage" as an EntityPage section; this commit
+       satisfies that.
 
    Step-3c (2026-05-04): amber-callout and empty-state copy no longer
    include `cfg.label.toLowerCase()`. The lowercase output for
@@ -203,83 +216,59 @@ export default function EntityPage({ entity }: Props) {
         )}
       </header>
 
-      {/* Description prose — Wikipedia-style lead paragraph sitting
-          between the hero and the data tiles. Renders only when
-          description exists (own or inherited via getEntityViewModel
-          column-fallback). Attribution line follows when content was
-          inherited from a parent whose wikipedia_url is set. */}
+      {/* Description prose + CC BY-SA attribution when inherited. */}
       {entity.description && (
-        <section className="mb-8 max-w-3xl">
+        <section className="mb-8">
           <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
             {entity.description}
           </p>
           {attribution && (
-            <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+            <p className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
               {attribution.contentNoun} from{' '}
               <a
                 href={attribution.sourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline decoration-zinc-400 underline-offset-2 hover:text-zinc-700 dark:hover:text-zinc-300"
+                className="underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-500 dark:decoration-zinc-700 dark:hover:decoration-zinc-500"
               >
                 Wikipedia
               </a>
-              ,{' '}
-              <a
-                href="https://creativecommons.org/licenses/by-sa/4.0/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline decoration-zinc-400 underline-offset-2 hover:text-zinc-700 dark:hover:text-zinc-300"
-              >
-                CC BY-SA 4.0
-              </a>
-              .
-              {entity.descriptionInheritedFromName && (
-                <>
-                  {' '}Sourced from the{' '}
-                  <span className="text-zinc-600 dark:text-zinc-400">
-                    {entity.descriptionInheritedFromName}
-                  </span>
-                  {' '}article.
-                </>
-              )}
+              {' '}(CC BY-SA 4.0)
             </p>
           )}
         </section>
       )}
 
-      {/* Stats strip — fact tiles, not verdict tiles. */}
+      {/* Stats strip. Branch: childCount + activeListings + retailers + lowest.
+          Leaf: activeListings + retailers + lowest. */}
       <section
-        className={
-          isBranch
-            ? 'mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4'
-            : 'mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3'
-        }
+        className={`mb-8 grid gap-3 ${
+          isBranch ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'
+        }`}
       >
         {isBranch && (
           <Stat
-            label={`${childPlural} tracked`}
-            value={stats.childCount.toString()}
+            label={childPlural}
+            value={String(stats.childCount)}
             sub={
               stats.childrenWithListingsCount > 0
-                ? `${stats.childrenWithListingsCount} with current price`
-                : undefined
+                ? `${stats.childrenWithListingsCount} with listings`
+                : 'no current listings'
             }
           />
         )}
         <Stat
           label="Active listings"
-          value={stats.activeListingCount.toString()}
+          value={String(stats.activeListingCount)}
           sub={
             stats.inStockListingCount > 0
-              ? `${stats.inStockListingCount} fresh`
-              : 'all stale'
+              ? `${stats.inStockListingCount} in stock`
+              : undefined
           }
         />
         <Stat
           label="Retailers"
-          value={stats.retailerCount > 0 ? stats.retailerCount.toString() : '\u2014'}
-          sub={stats.retailerCount === 0 ? 'no current obs' : undefined}
+          value={String(stats.retailerCount)}
         />
         <Stat
           label={priceTileCopy.label}
@@ -300,6 +289,13 @@ export default function EntityPage({ entity }: Props) {
         attributes={entity.attributes}
         inheritedAttributes={entity.inheritedAttributes}
         inheritedFromName={entity.inheritedFromName}
+      />
+
+      {/* Lineage — predecessor / successor cards. Self-gates: renders
+          nothing when both are null. */}
+      <EntityLineage
+        predecessor={entity.predecessor}
+        successor={entity.successor}
       />
 
       {/* No-current-prices callout. Tier-aware copy: a `historical`
