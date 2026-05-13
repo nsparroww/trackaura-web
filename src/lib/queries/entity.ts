@@ -258,11 +258,14 @@ type WalkNode = {
   parentEntityId: string | null;
 };
 
-type ParentColumns = {
+type AncestorRow = {
+  id: string;
   image_primary_url: string | null;
   description_md: string | null;
   canonical_name: string;
   display_name: string | null;
+  entity_type: string;
+  parent_entity_id: string | null;
 };
 
 /* Use a permissive Supabase type until the project's generated types land.
@@ -326,20 +329,48 @@ async function anyHistoricalObservationExists(
     (image_primary_url, description_md) and attribution display
     (display_name / canonical_name). Returns null when the parent row
     can't be loaded â€” caller treats as "no inheritance possible". */
-async function fetchParentColumns(
+/* Walk parent_entity_id chain bottom-up, returning ancestors in order
+   (ancestors[0] = immediate parent, [1] = grandparent, ...).
+   Unlike buildBreadcrumbs, does NOT halt at unregistered entity_types —
+   inheritance must climb past entity_types like gpu_microarch whose frontend
+   route hasn't shipped. Caps at MAX_BREADCRUMB_DEPTH for cycle defence.
+   2026-05-12: replaces single-hop fetchParentColumns for N-level inheritance
+   (ROADMAP Active Item 6). Sequential round-trips acceptable at current
+   tree depth (max 3 levels today); revisit RPC consolidation if Phase 2
+   deepens trees. */
+async function fetchAncestorChain(
   supabase: SupabaseClient,
-  parentId: string,
-): Promise<ParentColumns | null> {
-  const { data, error } = await supabase
-    .from('canonical_entities')
-    .select('image_primary_url, description_md, canonical_name, display_name')
-    .eq('id', parentId)
-    .maybeSingle();
-  if (error) {
-    console.error('[entity] parent columns fetch failed:', error);
-    return null;
+  startParentId: string,
+): Promise<AncestorRow[]> {
+  const chain: AncestorRow[] = [];
+  let nextId: string | null = startParentId;
+  for (let i = 0; i < MAX_BREADCRUMB_DEPTH && nextId; i++) {
+    const { data, error } = await supabase
+      .from('canonical_entities')
+      .select(
+        'id, image_primary_url, description_md, canonical_name, display_name, entity_type, parent_entity_id',
+      )
+      .eq('id', nextId)
+      .maybeSingle();
+    if (error) {
+      console.error('[entity] ancestor walk failed:', error);
+      break;
+    }
+    if (!data) break;
+    const row: AncestorRow = {
+      id: String(data.id),
+      image_primary_url: data.image_primary_url ?? null,
+      description_md: data.description_md ?? null,
+      canonical_name: data.canonical_name,
+      display_name: data.display_name ?? null,
+      entity_type: data.entity_type,
+      parent_entity_id:
+        data.parent_entity_id != null ? String(data.parent_entity_id) : null,
+    };
+    chain.push(row);
+    nextId = row.parent_entity_id;
   }
-  return data as ParentColumns | null;
+  return chain;
 }
 
 /* Main --------------------------------------------------------------- */
@@ -402,7 +433,7 @@ export async function getEntityViewModel(
   const hasParent = entity.parent_entity_id != null;
   const parentId = hasParent ? String(entity.parent_entity_id) : null;
 
-  const [breadcrumbs, rawInherited, parentRow, parentWikipediaUrl] = await Promise.all([
+  const [breadcrumbs, rawInherited, ancestors] = await Promise.all([
     buildBreadcrumbs(supabase, {
       id: String(entity.id),
       entityType: entity.entity_type as EntityType,
@@ -415,59 +446,74 @@ export async function getEntityViewModel(
       ? fetchEntityAttributes(parentId)
       : Promise.resolve([] as EntityAttribute[]),
     parentId
-      ? fetchParentColumns(supabase, parentId)
-      : Promise.resolve(null as ParentColumns | null),
-    parentId
-      ? supabase
-          .from('entity_attributes')
-          .select('attribute_value')
-          .eq('entity_id', parentId)
-          .eq('attribute_key', 'wikipedia_url')
-          .maybeSingle()
-          .then((r) => (r.data?.attribute_value as string | null) ?? null)
-      : Promise.resolve(null as string | null),
+      ? fetchAncestorChain(supabase, parentId)
+      : Promise.resolve([] as AncestorRow[]),
   ]);
 
-  /* 4. Inheritance + attribution. wikipedia_url lives in
-        entity_attributes but is NOT in ATTRIBUTE_CONFIG (metadata, not
-        a display spec), so fetchEntityAttributes filters it out and it
-        never reaches rawInherited. Pulled directly above as the fourth
-        Promise.all entry. The wikipedia_url filter on inheritedAttributes
-        below is retained as defense-in-depth in case the config gains a
-        wikipedia_url entry later. Image and description fall back to
-        parent column when the leaf column is null. */
-  const wikipediaSourceUrl = parentWikipediaUrl;
+  /* First ancestor (climbing up from the leaf) with a non-null
+     image_primary_url and description_md, computed independently so
+     image and description can come from different ancestors. A board
+     with no own image inherits the chip's product photo, while a chip
+     with no own description inherits the microarch's prose. */
+  const imageAncestor =
+    ancestors.find((a) => a.image_primary_url != null) ?? null;
+  const descAncestor =
+    ancestors.find((a) => a.description_md != null) ?? null;
 
+  /* Wikipedia URL belongs to whoever supplied the description (the
+     attribution is for the description prose; image attribution would
+     need a separate Commons-license treatment). Single follow-up query
+     for the description ancestor's wikipedia_url attribute. */
+  const wikipediaSourceUrl = await (async () => {
+    if (!descAncestor) return null;
+    const { data } = await supabase
+      .from('entity_attributes')
+      .select('attribute_value')
+      .eq('entity_id', descAncestor.id)
+      .eq('attribute_key', 'wikipedia_url')
+      .maybeSingle();
+    return (data?.attribute_value as string | null) ?? null;
+  })();
+
+  /* 4. Inheritance + attribution. wikipedia_url is fetched separately
+        above from the description ancestor's entity_attributes (not in
+        ATTRIBUTE_CONFIG, so fetchEntityAttributes wouldn't surface it).
+        The wikipedia_url filter on inheritedAttributes below is retained
+        as defense-in-depth in case the config gains a wikipedia_url
+        entry later. Image and description fall back to the first
+        ancestor with a non-null value, independently — a board inherits
+        chip image + microarch description on a typical GPU page. */
   const ownKeys = new Set(attributes.map((a) => a.key));
   const inheritedAttributes = rawInherited.filter(
     (a) => !ownKeys.has(a.key) && a.key !== 'wikipedia_url',
   );
 
-  const parentDisplayName =
-    parentRow?.display_name ?? parentRow?.canonical_name ?? null;
+  const ancestorDisplayName = (a: AncestorRow): string =>
+    a.display_name ?? a.canonical_name;
 
   const imageUrl =
-    entity.image_primary_url ?? parentRow?.image_primary_url ?? null;
+    entity.image_primary_url ?? imageAncestor?.image_primary_url ?? null;
   const description =
-    entity.description_md ?? parentRow?.description_md ?? null;
+    entity.description_md ?? descAncestor?.description_md ?? null;
 
   const imageInheritedFromName =
-    entity.image_primary_url == null &&
-    parentRow?.image_primary_url != null
-      ? parentDisplayName
+    entity.image_primary_url == null && imageAncestor != null
+      ? ancestorDisplayName(imageAncestor)
       : null;
   const descriptionInheritedFromName =
-    entity.description_md == null && parentRow?.description_md != null
-      ? parentDisplayName
+    entity.description_md == null && descAncestor != null
+      ? ancestorDisplayName(descAncestor)
       : null;
 
   /* inheritedFromName: section heading for the EAV inheritance block in
-     EntitySpecs. Uses the direct parent fetch rather than the breadcrumb
-     walk, so it stays correct even when intermediate entity_types
-     aren't registered in entity-config (the cpu_microarch case). */
+     EntitySpecs. The EAV inheritance is still single-hop (only the
+     immediate parent's attributes are merged in via fetchEntityAttributes
+     above); the heading reflects that ancestor, not the deeper image/
+     description sources. */
+  const immediateParent = ancestors[0] ?? null;
   const inheritedFromName =
-    hasParent && inheritedAttributes.length > 0
-      ? parentDisplayName
+    hasParent && inheritedAttributes.length > 0 && immediateParent
+      ? ancestorDisplayName(immediateParent)
       : null;
 
   /* 5. Stats + tier classification. Stats roll up from whichever set applies.
