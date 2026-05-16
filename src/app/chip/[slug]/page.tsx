@@ -20,7 +20,7 @@ type Params = { slug: string };
 
 const ENTITY_TYPE = 'gpu_chip' as const;
 
-/* ──────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────
    /chip/[slug]
 
    Step-3b cutover (2026-05-04). Was previously rendered by
@@ -36,7 +36,7 @@ const ENTITY_TYPE = 'gpu_chip' as const;
    Bible Protocol #16: src/proxy.ts and next.config.ts redirects()
    intercept BEFORE this route handler. Confirmed clean for /chip/* at
    Step 2 ship.
-   ────────────────────────────────────────────────────────────────────── */
+   ───────────────────────────────────────────────────────────────────── */
 
 const resolveChipPage = cache(
   async (
@@ -99,34 +99,6 @@ export default async function Page({
     </>
   );
 }
-
-/* ──────────────────────────────────────────────────────────────────────
-   ISR opt-in (Bible Protocol #37, 2026-05-15)
-
-   Without these two exports a dynamic-segment route is fully dynamic
-   by default — `revalidate` below is silently ignored and the build
-   route table shows `ƒ` instead of `●`. Returning [] from
-   generateStaticParams means "no paths prerendered at build, generate-
-   and-cache on first visit, serve from edge cache thereafter."
-
-   Co-requisite: every Supabase callsite in the render graph must use
-   createCatalogClient() (cookie-free). Verified for chip route:
-     - resolveEntitySlug   → createCatalogClient (2026-05-15 fix)
-     - getEntityViewModel  → createCatalogClient (since 2026-05-09)
-     - buildEntityMetadata → pure, no Supabase
-     - buildEntity*Ld      → pure, no Supabase
-
-   Verify via build route table after deploy: this route should show
-   `●` not `ƒ`. Production smoke confirms with two-curl pass:
-   X-Vercel-Cache MISS then HIT, Cache-Control flips from private to
-   public, X-Nextjs-Prerender: 1 appears.
-   ────────────────────────────────────────────────────────────────────── */
-
-export async function generateStaticParams(): Promise<Array<Params>> {
-  return [];
-}
-
-export const dynamicParams = true;
 
 // Match /p/[slug] and /board/[slug] cadence: scraper runs are slower
 // than 5min so don't hit the DB on every pageview.

@@ -105,10 +105,3 @@ export default async function Page({
 // Match /p/[slug] and /chip/[slug] cadence: scraper runs are slower
 // than 5min so don't hit the DB on every pageview.
 export const revalidate = 300;
-
-/* ISR opt-in (Bible Protocol #37, 2026-05-15) -- see /chip/[slug]/page.tsx for full context. */
-export async function generateStaticParams(): Promise<Array<Params>> {
-  return [];
-}
-
-export const dynamicParams = true;
