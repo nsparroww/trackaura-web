@@ -1,6 +1,6 @@
-import { createClient } from '@/lib/supabase/server';
+import { createCatalogClient } from '@/lib/supabase/server';
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────
    Chip attribute config + fetch.
 
    This module is the single source of truth for how raw `entity_attributes`
@@ -27,7 +27,17 @@ import { createClient } from '@/lib/supabase/server';
    stay dropped. Renaming this module to entity-attributes-config.ts is a
    Phase-0.5 polish item; Protocol #11 says don't introduce a parallel
    module while the existing one already owns the concern.
-   ───────────────────────────────────────────────────────────────────── */
+
+   Cookie-free per Bible Protocol #37 (2026-05-15):
+     fetchChipAttributes was the second cookies() callsite (alongside
+     entity-slug.ts) keeping /chip /board /cpu /cpu-microarch from
+     opting into ISR. The previous ISR ship (2026-05-15) flipped the
+     entity-slug.ts callsite but missed this one; result was 500s in
+     the ISR prerender path on every entity that resolved successfully
+     to a leaf with attributes. Reads on entity_attributes are
+     public-catalog with public-read RLS, so anon-key access via the
+     cookie-free client is correct. Same shape of fix as entity-slug.ts.
+   ────────────────────────────────────────────────────────────────────── */
 
 export type ChipAttribute = {
   key: string;
@@ -259,7 +269,7 @@ export function formatAttributes(rows: RawAttrRow[]): ChipAttribute[] {
   return out;
 }
 
-/* ─────────────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────
    fetchChipAttributes — returns formatted attributes for any entity.
    Caller is responsible for verifying entity_type matches what the
    ATTRIBUTE_CONFIG covers.
@@ -271,12 +281,12 @@ export function formatAttributes(rows: RawAttrRow[]): ChipAttribute[] {
 
    Returns [] on error or no data. Never returns null (lets callers
    .map without nullability checks).
-   ───────────────────────────────────────────────────────────────────── */
+   ────────────────────────────────────────────────────────────────────── */
 
 export async function fetchChipAttributes(
   chipEntityId: string | number,
 ): Promise<ChipAttribute[]> {
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
   const { data, error } = await supabase
     .from('entity_attributes')
     .select('attribute_key, attribute_value, attribute_value_num')
