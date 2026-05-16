@@ -264,7 +264,7 @@ export default function PriceChart({ data, currentPrice, minPrice, maxPrice }: P
       {/* Sparse data message */}
       {isSparse && (
         <p style={{ textAlign: "center", fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.5rem", fontStyle: "italic" }}>
-          {"Building price history \u2014 prices are checked every 4 hours. Set a price alert to get notified of drops."}
+          {"Building price history \u2014 prices are checked daily. Set a price alert to get notified of drops."}
         </p>
       )}
     </div>

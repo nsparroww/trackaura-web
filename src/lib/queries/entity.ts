@@ -105,6 +105,17 @@ export type EntityListing = {
   matchConfidence: number | null;
 };
 
+/** One point in a leaf entity's price history, shaped for <PriceChart>.
+    `date` is the raw price_observations.observed_at timestamp â€” PriceChart
+    slices it to YYYY-MM-DD and daily-means. Open-box observations are
+    excluded upstream (fetchPriceHistory): the chart draws a daily MEAN, so
+    a mixed new/open-box day would average into a misleading figure. Leaves
+    only â€” branches resolve to []. */
+export type PriceHistoryPoint = {
+  date: string;
+  price: number;
+};
+
 /** Per Architecture Bible Â§9 honest-labeling. Derived from
     freshRetailerCount (within 48hr) and price-history existence:
       - well_tracked      N >= 3 fresh retailers
@@ -233,6 +244,12 @@ export type EntityViewModel = {
   children: EntityChild[];
   /** Populated only for leaf entities. Branches: []. */
   listings: EntityListing[];
+
+  /** New-price observation series for this entity, oldest-first. Populated
+      for leaves only (price_observations.entity_id is the leaf's own id);
+      branches resolve to []. Open-box observations excluded. Consumed by
+      the Price history section in EntityPage via <PriceChart>. */
+  priceHistory: PriceHistoryPoint[];
 
   stats: EntityStats;
 
@@ -550,13 +567,21 @@ export async function getEntityViewModel(
     return null;
   }
 
-  /* 2. Children (branch) OR own listings (leaf). */
+  /* 2. Children (branch) OR own listings + price history (leaf). */
   let children: EntityChild[] = [];
   let ownListings: EntityListing[] = [];
+  let priceHistory: PriceHistoryPoint[] = [];
   if (cfg.childEntityType) {
     children = await fetchChildren(supabase, String(entity.id), cfg.childEntityType);
   } else {
-    ownListings = await fetchOwnListings(supabase, String(entity.id));
+    /* Leaf: own listings + full price-history series, in parallel.
+       fetchOwnListings hits listings + price_observations for the
+       latest-per-listing price; fetchPriceHistory is an independent
+       read of the full series by entity_id (the leaf's own id). */
+    [ownListings, priceHistory] = await Promise.all([
+      fetchOwnListings(supabase, String(entity.id)),
+      fetchPriceHistory(supabase, String(entity.id)),
+    ]);
   }
 
   /* 3. Breadcrumbs + parent attributes + parent columns + lineage in parallel.
@@ -690,7 +715,7 @@ export async function getEntityViewModel(
   }
 
   console.log(
-    `[entity] id=${entityId} type=${expectedType} children=${children.length} listings=${ownListings.length} attrs=${attributes.length} inherited=${inheritedAttributes.length} tier=${coverageTier ?? 'branch'} freshRetailers=${freshRetailerCount} imgInh=${imageInheritedFromName ?? 'no'} descInh=${descriptionInheritedFromName ?? 'no'} lineage=${lineage.predecessor ? 'pre' : '-'}/${lineage.successor ? 'suc' : '-'}`,
+    `[entity] id=${entityId} type=${expectedType} children=${children.length} listings=${ownListings.length} history=${priceHistory.length} attrs=${attributes.length} inherited=${inheritedAttributes.length} tier=${coverageTier ?? 'branch'} freshRetailers=${freshRetailerCount} imgInh=${imageInheritedFromName ?? 'no'} descInh=${descriptionInheritedFromName ?? 'no'} lineage=${lineage.predecessor ? 'pre' : '-'}/${lineage.successor ? 'suc' : '-'}`,
   );
 
   return {
@@ -714,6 +739,7 @@ export async function getEntityViewModel(
     inheritedFromName,
     children,
     listings: ownListings,
+    priceHistory,
     stats,
     freshRetailerCount,
     coverageTier,
@@ -928,6 +954,48 @@ async function fetchObservationsByListing(
       isOpenBox: !!o.is_openbox,
       observedAt: o.observed_at,
     });
+  }
+  return out;
+}
+
+/** Full new-price observation series for a leaf entity, oldest-first.
+
+    Queries price_observations directly by entity_id (the denormalized
+    column) â€” for a leaf the observation's entity_id IS this entity, so no
+    listings round-trip is needed. Branches must NOT call this: their
+    observations carry child entity_ids, not the branch's own id, so the
+    result would be empty and misleading. fetchOwnListings/the leaf branch
+    of getEntityViewModel is the only caller.
+
+    is_openbox=false: PriceChart draws a daily-MEAN line, so an open-box
+    observation sharing a day with a new-price observation would pull the
+    mean toward a figure that is neither. Open-box prices still surface as
+    individual rows via EntityListings; they're excluded from the trend
+    line only. Rows with a NULL/negative price or NULL observed_at are
+    dropped defensively. */
+async function fetchPriceHistory(
+  supabase: SupabaseClient,
+  entityId: string,
+): Promise<PriceHistoryPoint[]> {
+  const { data, error } = await supabase
+    .from('price_observations')
+    .select('price, observed_at')
+    .eq('entity_id', entityId)
+    .eq('is_openbox', false)
+    .order('observed_at', { ascending: true })
+    .limit(OBSERVATION_LIMIT);
+
+  if (error) {
+    console.error('[entity] price history fetch failed:', error);
+    return [];
+  }
+
+  const out: PriceHistoryPoint[] = [];
+  for (const o of data ?? []) {
+    if (o.price == null || !o.observed_at) continue;
+    const price = Number(o.price);
+    if (Number.isNaN(price) || price < 0) continue;
+    out.push({ date: o.observed_at as string, price });
   }
   return out;
 }

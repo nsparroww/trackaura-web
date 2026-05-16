@@ -7,6 +7,7 @@ import EntitySpecs from './EntitySpecs';
 import EntityChildren from './EntityChildren';
 import EntityListings from './EntityListings';
 import EntityLineage from './EntityLineage';
+import PriceChart from '@/components/PriceChart';
 
 type Props = { entity: EntityViewModel };
 
@@ -162,6 +163,26 @@ function buildAttributionParts(
   return { contentNoun: noun, sourceUrl: entity.sourceUrl };
 }
 
+/**
+ * Min / max / latest price across the price-history series, for
+ * <PriceChart>'s minPrice / maxPrice / currentPrice props. The series is
+ * oldest-first, so the last element is the most recent observation.
+ * Returns zeroes for an empty series — callers gate on length >= 2 before
+ * rendering the chart, so those zeroes are never displayed.
+ */
+function summarizePriceHistory(
+  history: EntityViewModel['priceHistory'],
+): { min: number; max: number; current: number } {
+  if (history.length === 0) return { min: 0, max: 0, current: 0 };
+  let min = history[0].price;
+  let max = history[0].price;
+  for (const p of history) {
+    if (p.price < min) min = p.price;
+    if (p.price > max) max = p.price;
+  }
+  return { min, max, current: history[history.length - 1].price };
+}
+
 export default function EntityPage({ entity }: Props) {
   const cfg = ENTITY_TYPES[entity.entityType];
   const category = CATEGORIES[cfg.category];
@@ -178,6 +199,11 @@ export default function EntityPage({ entity }: Props) {
      resolve to nulls because their tier is null. */
   const priceTileCopy = computePriceTileCopy(entity);
   const amberCalloutCopy = computeAmberCalloutCopy(entity);
+
+  /* Price-history series summary, for <PriceChart>'s reference-line and
+     change-calculation props. Empty for branches and thin leaves. */
+  const priceHistorySummary = summarizePriceHistory(entity.priceHistory);
+  const showPriceHistory = entity.priceHistory.length >= 2;
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:py-12">
@@ -340,6 +366,26 @@ export default function EntityPage({ entity }: Props) {
           heading="No active listings."
           body="No Canadian retailers are tracking this yet."
         />
+      )}
+
+      {/* Price history — new-price observation series for leaf entities.
+          Self-gates at >=2 points: a single observation is a dot, not a
+          chart, and the current price is already in the stats strip /
+          listings table. Branches resolve priceHistory to [] upstream, so
+          this never renders for a chip. Open-box observations are excluded
+          in getEntityViewModel — the line is new-price only. */}
+      {showPriceHistory && (
+        <section className="mt-8">
+          <h2 className="mb-4 text-lg font-semibold">Price history</h2>
+          <div className="rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <PriceChart
+              data={entity.priceHistory}
+              currentPrice={priceHistorySummary.current}
+              minPrice={priceHistorySummary.min}
+              maxPrice={priceHistorySummary.max}
+            />
+          </div>
+        </section>
       )}
 
       {/* Provenance footer — earned-trust posture, no spin. Per-category
