@@ -43,6 +43,27 @@ import { getEntityTypeConfig, type EntityType } from './entity-config';
        forms.
      - 'gpus' (boards) and other leaf-only types: see entity-config.
 
+   Bare-slug collision handling (Phase-0.5 polish, 2026-05-14):
+     The step-3 brand-prefix fallback previously used `.limit(1)`. When
+     two prefixed candidates both exist as real DB rows -- e.g. bare
+     '610m' expands to both 'nvidia-geforce-610m' and 'amd-radeon-610m'
+     -- `.limit(1)` returned whichever row Postgres yielded first, a
+     coin flip that silently served one arbitrary chip on /chip/610m.
+     Recon (2026-05-14) found 4 such collisions in gpu_chip: 610m,
+     m2000, m4000, m6000 -- each an AMD part vs an NVIDIA part cleaning
+     to an identical bare slug, all 8 chips content-empty (0 boards,
+     0 listings).
+     Fix: fetch ALL prefix matches (no limit) and branch on count.
+       1 match  -> resolve as before.
+       0 matches -> genuine miss.
+       2+ matches -> AMBIGUOUS: return a miss so the route 404s cleanly
+                     rather than coin-flipping. The full prefixed slugs
+                     ('/chip/nvidia-geforce-610m', '/chip/amd-radeon-610m')
+                     still resolve via step-1 exact-match, so both chips
+                     stay reachable; only the ambiguous bare URL is
+                     refused. Systemic -- no per-collision alias entries,
+                     and a 5th collision is handled with zero new code.
+
    This module imports next/headers via the Supabase server client. Do
    NOT import it from client components. Client components should reach
    for entity-slug-helpers.ts directly.
@@ -153,14 +174,17 @@ export async function resolveEntitySlug(
     return { entityId: null, cleanSlug: requestedSlug, needsRedirect: false };
   }
 
-  /* 3. Brand-prefix fallback in a single batched query. */
+  /* 3. Brand-prefix fallback in a single batched query.
+     Fetch ALL matches (no .limit) so a bare-slug collision -- two
+     prefixed candidates both existing as real rows -- can be detected
+     and refused rather than coin-flipped. See the bare-slug collision
+     note in the module header. */
   const candidates = prefixes.map((p) => `${p}${requestedSlug}`);
   const { data: prefixed, error: prefixedErr } = await supabase
     .from('canonical_entities')
     .select('id, slug')
     .in('slug', candidates)
-    .eq('entity_type', entityType)
-    .limit(1);
+    .eq('entity_type', entityType);
 
   if (prefixedErr) {
     console.error(
@@ -170,7 +194,18 @@ export async function resolveEntitySlug(
     return { entityId: null, cleanSlug: requestedSlug, needsRedirect: false };
   }
 
-  if (prefixed && prefixed.length > 0) {
+  if (prefixed && prefixed.length > 1) {
+    /* Ambiguous bare slug: multiple real rows share this cleaned form.
+       Refuse resolution so the route 404s; the full prefixed slugs
+       still resolve via step-1 exact-match. */
+    console.warn(
+      `[entity-slug] ambiguous bare slug '${requestedSlug}' (type=${entityType}) ` +
+        `matched ${prefixed.length} rows: ${prefixed.map((r) => r.slug).join(', ')} -- refusing`,
+    );
+    return { entityId: null, cleanSlug: requestedSlug, needsRedirect: false };
+  }
+
+  if (prefixed && prefixed.length === 1) {
     return {
       entityId: String(prefixed[0].id),
       cleanSlug: requestedSlug,
