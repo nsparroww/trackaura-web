@@ -1,9 +1,9 @@
 /**
  * Legacy /product/[slug] route handler.
  *
- * ─────────────────────────────────────────────────────────────────────────────
+ * ────────────────────────────────────────────────────────────────────
  * Background
- * ─────────────────────────────────────────────────────────────────────────────
+ * ────────────────────────────────────────────────────────────────────
  * A slug regen on 2026-04-17 rewrote canonical_products into a doubled-brand-
  * prefix form ('gigabyte-gigabyte-...'), truncated some slugs, and prefixed
  * others with a stray leading digit. Google had the OLD slugs cached. By
@@ -15,9 +15,9 @@
  * actually LIVE products under drifted slugs. The whole site's ranked surface
  * is on /product/* — this was the bleeding.
  *
- * ─────────────────────────────────────────────────────────────────────────────
+ * ────────────────────────────────────────────────────────────────────
  * Renderability is the gating condition, not slug existence
- * ─────────────────────────────────────────────────────────────────────────────
+ * ────────────────────────────────────────────────────────────────────
  * /p/[slug] (the redirect target) doesn't just check that a canonical_products
  * row exists — getProductViewModel returns null and the page 404s unless:
  *   (a) a canonical_products row matches `slug` OR `{first-segment}-{slug}`
@@ -36,9 +36,9 @@
  * getProductViewModel itself does: fetch the canonical row, then fetch
  * products WHERE canonical_id = id LIMIT 1. Same pattern as /p/[slug].
  *
- * ─────────────────────────────────────────────────────────────────────────────
+ * ────────────────────────────────────────────────────────────────────
  * Resolution lanes (first hit wins)
- * ─────────────────────────────────────────────────────────────────────────────
+ * ────────────────────────────────────────────────────────────────────
  * Recon (2026-05-14, n=999 dead slugs from GSC export):
  *
  *   L_exact     /p/{slug} renders directly via its own resolution        17.4%
@@ -52,7 +52,14 @@
  *               wrong product.
  *               -> 301 /p/{trueSlug}
  *
- *   L_gone      none of the above                                        70.6%
+ *   L_entities  canonical_entities row matches `slug` or its doubled-     0.4%
+ *               prefix form. These are catalog rows ingested directly
+ *               into the new schema (e.g. RTX 4000 Ada, Zotac/Sapphire
+ *               boards) that never had a v0 canonical_products row.
+ *               Added 2026-05-15; n=4 from same recon corpus.
+ *               -> 301 /chip|/board|/cpu per entity_type.
+ *
+ *   L_gone      none of the above                                        70.2%
  *               -> 410 Gone
  *
  * No pg_trgm fuzzy lane. An earlier draft included one; recon proved it
@@ -63,19 +70,22 @@
  * matches that differed in slug-formatting (`156` vs `15-6`, `1-35v` vs
  * `135v`). No safe form of the lane shipped this session; logged for follow-up.
  *
- * 29.4% recovered is the FLOOR. Future work to safely add a fuzzy lane can
- * only improve it. Shipping a working 29% beats holding for a tuned 60% that
+ * 29.8% recovered is the FLOOR. Future work to safely add a fuzzy lane can
+ * only improve it. Shipping a working 30% beats holding for a tuned 60% that
  * might be wrong.
  *
- * ─────────────────────────────────────────────────────────────────────────────
+ * ────────────────────────────────────────────────────────────────────
  * Notes
- * ─────────────────────────────────────────────────────────────────────────────
+ * ────────────────────────────────────────────────────────────────────
  *   - 301 (permanent) tells Google to move the index entry.
  *   - 410 (Gone) de-indexes faster than 404. Correct for genuinely removed.
- *   - Redirect target is always /p/{...} — /p/[slug] is the legacy v0 read
- *     path that still serves all of canonical_products today. Recon showed
- *     only 4 of 999 dead slugs resolved into canonical_entities-only; that
- *     entity-routing edge case is logged for follow-up, not handled here.
+ *   - Redirect target is /p/{...} for canonical_products matches (L_exact,
+ *     L_contains) and /chip|/board|/cpu/{...} for canonical_entities matches
+ *     (L_entities). Entity routes have their own slug-resolution layer that
+ *     canonicalises clean-form vs doubled-prefix downstream.
+ *   - Known entity_types without dedicated routes today (monitor,
+ *     cpu_microarch, gpu_microarch) fall through to 410 rather than 301
+ *     to a 404. Add to entityTypeToRoutePrefix() when those routes ship.
  *   - force-dynamic: per-request DB lookup, never prerendered.
  *   - On Supabase error we 410 rather than 500; transient blips shouldn't
  *     surface as server errors. Google retries 410s.
@@ -122,6 +132,27 @@ async function canonicalHasListings(
   return data != null;
 }
 
+/**
+ * Map an `entity_type` to its frontend route prefix. Routes confirmed
+ * present per WORKFLOW.md frontend file tree: `/chip` (gpu_chip),
+ * `/board` (gpus), `/cpu` (cpu). Other entity_types (monitor,
+ * cpu_microarch, gpu_microarch) have catalog data but no dedicated
+ * route file as of 2026-05-15 — return null and fall through to 410.
+ * Extend this switch when new entity routes ship.
+ */
+function entityTypeToRoutePrefix(entityType: string): string | null {
+  switch (entityType) {
+    case "gpu_chip":
+      return "/chip";
+    case "gpus":
+      return "/board";
+    case "cpu":
+      return "/cpu";
+    default:
+      return null;
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> },
@@ -140,7 +171,7 @@ export async function GET(
 
   const supabase = await createClient();
 
-  /* ── L_exact: will /p/{decodedSlug} render? ─────────────────────────────
+  /* ── L_exact: will /p/{decodedSlug} render? ──────────────────────
      /p/[slug] does its own doubled-prefix prepend, so this handler just
      needs to verify that /p/ CAN resolve `decodedSlug` AND that the
      resolved canonical_products row has at least one linked products row.
@@ -183,7 +214,7 @@ export async function GET(
     }
   }
 
-  /* ── L_contains: GSC-truncated slug, unique containing live slug ────────
+  /* ── L_contains: GSC-truncated slug, unique containing live slug ────
      Some dead slugs are leading substrings of longer live slugs (GSC
      truncated them mid-string). Substring match is exact and can't
      mismatch products; uniqueness guard prevents short-substring ambiguity.
@@ -225,11 +256,60 @@ export async function GET(
       if (renderable.length === 1 && renderable[0]?.slug) {
         return redirectToProduct(request, renderable[0].slug);
       }
-      // 0 renderable, or >1 ambiguous → fall through to 410.
+      // 0 renderable, or >1 ambiguous → fall through to L_entities.
     }
   }
 
-  /* ── L_gone ──────────────────────────────────────────────────────────── */
+  /* ── L_entities: canonical_entities target (gpu_chip / gpus / cpu) ──
+     4 of 999 dead slugs (per 2026-05-14 recon) resolve into
+     canonical_entities, not canonical_products. These are catalog rows
+     ingested directly into the new schema (RTX 4000 Ada workstation,
+     Zotac/Sapphire AIB boards) that never had a v0 row. Route by
+     entity_type to the per-type entity page; that route's own slug
+     resolver handles clean-form vs doubled-prefix canonicalisation.
+
+     Same exact + doubled-prefix probe as L_exact: §3 of the bible
+     notes board entities (entity_type='gpus') inherit canonical_
+     products' doubled-prefix slug pattern.
+
+     No renderability check equivalent to canonicalHasListings — entity
+     pages render encyclopedically even with zero retailer observations
+     (§9 honest-labeling: `encyclopedic_only` / `historical` tiers). The
+     entity page existing is enough.
+
+     Known entity_types without dedicated routes today (monitor,
+     cpu_microarch, gpu_microarch) fall through to 410 via the null
+     return from entityTypeToRoutePrefix(). */
+  {
+    const idx = decodedSlug.indexOf("-");
+    const doubledSlug =
+      idx > 0 ? `${decodedSlug.slice(0, idx)}-${decodedSlug}` : null;
+    const candidateSlugs = doubledSlug
+      ? [decodedSlug, doubledSlug]
+      : [decodedSlug];
+
+    const { data, error } = await supabase
+      .from("canonical_entities")
+      .select("slug, entity_type")
+      .in("slug", candidateSlugs)
+      .limit(1)
+      .maybeSingle();
+
+    if (error && error.code !== "PGRST116") {
+      console.error("[/product/[slug]] L_entities query failed:", error.message);
+      return goneResponse();
+    }
+    if (data) {
+      const prefix = entityTypeToRoutePrefix(data.entity_type);
+      if (prefix) {
+        return redirectToEntity(request, prefix, data.slug);
+      }
+      // Entity exists but its entity_type has no route yet. Falling
+      // through to 410 is safer than 301-ing into a 404.
+    }
+  }
+
+  /* ── L_gone ────────────────────────────────────────────────────── */
   return goneResponse();
 }
 
@@ -237,6 +317,19 @@ export async function GET(
 function redirectToProduct(request: NextRequest, productSlug: string): Response {
   const dest = new URL(
     `/p/${encodeURIComponent(productSlug)}`,
+    request.nextUrl.origin,
+  );
+  return NextResponse.redirect(dest, 301);
+}
+
+/** 301 to a per-entity-type entity page (e.g. /chip/{slug}, /board/{slug}). */
+function redirectToEntity(
+  request: NextRequest,
+  routePrefix: string,
+  entitySlug: string,
+): Response {
+  const dest = new URL(
+    `${routePrefix}/${encodeURIComponent(entitySlug)}`,
     request.nextUrl.origin,
   );
   return NextResponse.redirect(dest, 301);

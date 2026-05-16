@@ -29,6 +29,7 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trackaura.com';
         rows (15%), and legacy-form requests where DB matches.
      2. On miss, prepend first segment ("asus-rog-..." → "asus-asus-rog-...")
         and try again. Covers the 80.5% legacy-DB / clean-URL case.
+        Guarded against already-doubled slugs to avoid triple-prefix.
      3. If the requested slug was itself the legacy duplicated form, return
         a redirect flag so the page issues a 308 to the clean URL.
      4. In all hit cases, override product.slug to the clean form so
@@ -81,15 +82,26 @@ async function resolveProduct(requestedSlug: string): Promise<Resolution> {
   const idx = requestedSlug.indexOf('-');
   if (idx > 0) {
     const first = requestedSlug.slice(0, idx);
-    const legacyAttempt = `${first}-${requestedSlug}`;
-    product = await getProductViewModel(legacyAttempt);
-    if (product) {
-      // Render at the clean URL. Override product.slug to clean.
-      return {
-        product: { ...product, slug: requestedSlug },
-        needsRedirect: false,
-        canonicalSlug: requestedSlug,
-      };
+    const rest = requestedSlug.slice(idx + 1);
+    // Guard against triple-prefix. If the requested slug is already in
+    // doubled-prefix form (e.g. `gigabyte-gigabyte-...`), prepending again
+    // produces a useless `gigabyte-gigabyte-gigabyte-...` that never
+    // matches anything. Step 1 already had the only viable shot at a
+    // doubled-form lookup; if it missed, the row isn't in the DB and
+    // step 2 can't recover it. Without this guard, doubled-form requests
+    // for non-existent rows produced a misleading 404 via triple-prefix
+    // lookup. Discovered 2026-05-14 during /product/ recovery smoke.
+    if (!rest.startsWith(first + '-')) {
+      const legacyAttempt = `${first}-${requestedSlug}`;
+      product = await getProductViewModel(legacyAttempt);
+      if (product) {
+        // Render at the clean URL. Override product.slug to clean.
+        return {
+          product: { ...product, slug: requestedSlug },
+          needsRedirect: false,
+          canonicalSlug: requestedSlug,
+        };
+      }
     }
   }
 
