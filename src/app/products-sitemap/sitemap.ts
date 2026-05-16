@@ -26,11 +26,9 @@ export async function generateSitemaps() {
     .from('canonical_products')
     .select('id', { count: 'exact', head: true })
     .not('image_url', 'is', null);
-
   if (error) {
     console.error('[sitemap] generateSitemaps count query failed:', error);
   }
-
   const productCount = count ?? 0;
   const chunkCount = Math.max(1, Math.ceil(productCount / URLS_PER_CHUNK));
   return Array.from({ length: chunkCount }, (_, i) => ({ id: i }));
@@ -51,26 +49,21 @@ export default async function sitemap({
   // Next.js 15+ makes dynamic-route params async. Await defensively even when
   // the type signature claims `id: number` — at runtime it can be a Promise.
   const resolvedId = (await Promise.resolve(id)) as number;
-
   const supabase = createAnonSupabaseClient();
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trackaura.com';
   const chunkStart = resolvedId * URLS_PER_CHUNK;
   const chunkEnd = chunkStart + URLS_PER_CHUNK - 1;
-
   // Paginate within the chunk to bypass PostgREST's max-rows cap.
   const allRows: ProductRow[] = [];
   let pageStart = chunkStart;
-
   while (pageStart <= chunkEnd) {
     const pageEnd = Math.min(pageStart + SUPABASE_PAGE_SIZE - 1, chunkEnd);
-
     const { data: rows, error } = await supabase
       .from('canonical_products')
       .select('slug, updated_at')
       .not('image_url', 'is', null)
       .order('id', { ascending: true })
       .range(pageStart, pageEnd);
-
     if (error) {
       console.error('[sitemap] page query failed', {
         chunkId: resolvedId,
@@ -80,21 +73,16 @@ export default async function sitemap({
       });
       break;
     }
-
     if (!rows || rows.length === 0) {
       break;
     }
-
     allRows.push(...rows);
-
     // Short read = end of result set
     if (rows.length < pageEnd - pageStart + 1) {
       break;
     }
-
     pageStart += SUPABASE_PAGE_SIZE;
   }
-
   return allRows.map((r) => ({
     url: `${base}/p/${r.slug}`,
     lastModified: r.updated_at ? new Date(r.updated_at) : new Date(),
@@ -103,5 +91,22 @@ export default async function sitemap({
   }));
 }
 
-// Refresh each chunk once a day. Scraper cadence is slower than this.
-export const revalidate = 86_400;
+/* Route segment config.
+
+   Both generateSitemaps() and the per-chunk renderer query
+   canonical_products via the Supabase client, whose fetches are
+   no-store. That makes the route inherently dynamic — Next.js cannot
+   statically prerender it. Declaring force-dynamic explicitly tells
+   the build to skip the doomed static-generation attempt; without it,
+   every `npm run build` logged Dynamic-server-usage errors for this
+   route (both the count query and the per-chunk page query) before
+   falling back to dynamic anyway. Runtime behaviour is unchanged —
+   the route was already `ƒ` Dynamic and served fine; this only quiets
+   the build log (2026-05-15).
+
+   `revalidate` is intentionally omitted: it has no effect on a
+   force-dynamic route. The previous `revalidate = 86_400` was dead
+   code — a route forced dynamic by a no-store fetch can't ISR-cache
+   regardless. If sitemap DB load ever needs throttling, the fix is a
+   cacheable fetch layer, not a revalidate value. */
+export const dynamic = 'force-dynamic';

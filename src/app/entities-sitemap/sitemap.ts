@@ -99,7 +99,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     });
 }
 
-// Refresh once a day. Scraper cadence is slower than this, and
-// canonical_entities rows themselves change rarely (catalog is mostly
-// append-only after initial import).
-export const revalidate = 86_400;
+/* Route segment config.
+
+   This sitemap queries canonical_entities via the Supabase client,
+   whose fetches are no-store. That makes the route inherently dynamic
+   — Next.js cannot statically prerender it. Declaring force-dynamic
+   explicitly tells the build to skip the doomed static-generation
+   attempt; without it, every `npm run build` logged a Dynamic-server-
+   usage error for this route before falling back to dynamic anyway.
+   Runtime behaviour is unchanged — the route was already `ƒ` Dynamic
+   and served fine; this only quiets the build log (2026-05-15).
+
+   `revalidate` is intentionally omitted: it has no effect on a
+   force-dynamic route (the page renders fresh per request). The
+   previous `revalidate = 86_400` was dead code — a route forced
+   dynamic by a no-store fetch can't ISR-cache regardless. If sitemap
+   DB load ever needs throttling, the fix is a cacheable fetch layer,
+   not a revalidate value — that's a separate change if it becomes
+   real. */
+export const dynamic = 'force-dynamic';
