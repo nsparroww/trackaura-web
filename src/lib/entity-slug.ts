@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createCatalogClient } from '@/lib/supabase/server';
 import { cleanEntitySlug } from './entity-slug-helpers';
 import { getEntityTypeConfig, type EntityType } from './entity-config';
 
@@ -64,9 +64,21 @@ import { getEntityTypeConfig, type EntityType } from './entity-config';
                      refused. Systemic -- no per-collision alias entries,
                      and a 5th collision is handled with zero new code.
 
-   This module imports next/headers via the Supabase server client. Do
-   NOT import it from client components. Client components should reach
-   for entity-slug-helpers.ts directly.
+   Cookie-free per Bible Protocol #37 (2026-05-15):
+     Resolution reads only public catalog tables (canonical_entities)
+     with public-read RLS. Switched from createClient() (cookie-aware,
+     calls cookies() internally) to createCatalogClient() (cookie-free).
+     cookies() anywhere in a route's render graph -- including inside a
+     helper query like this one -- forces dynamic rendering regardless
+     of revalidate / generateStaticParams. The four entity routes
+     (/chip, /board, /cpu, /cpu-microarch) call resolveEntitySlug() in
+     their page body AND generateMetadata, so this was the single
+     biggest reason those routes were stuck as `f` (Dynamic) instead of
+     `*` (SSG-with-ISR) in the build route table.
+
+   This module is server-side only -- it imports @/lib/supabase/server
+   which carries @supabase/ssr's server runtime. Do NOT import from
+   client components; reach for entity-slug-helpers.ts directly.
    ------------------------------------------------------------------------- */
 
 export type EntitySlugResolution = {
@@ -84,7 +96,7 @@ export async function resolveEntitySlug(
 ): Promise<EntitySlugResolution> {
   const cfg = getEntityTypeConfig(entityType);
   const prefixes = cfg.cleanSlugBrandPrefixes;
-  const supabase = await createClient();
+  const supabase = createCatalogClient();
 
   /* 1. Exact match. */
   const { data: exact, error: exactErr } = await supabase
