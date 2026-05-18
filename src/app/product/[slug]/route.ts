@@ -1,9 +1,9 @@
 /**
  * Legacy /product/[slug] route handler.
  *
- * ────────────────────────────────────────────────────────────────────
+ * ----------------------------------------------------------------------------
  * Background
- * ────────────────────────────────────────────────────────────────────
+ * ----------------------------------------------------------------------------
  * A slug regen on 2026-04-17 rewrote canonical_products into a doubled-brand-
  * prefix form ('gigabyte-gigabyte-...'), truncated some slugs, and prefixed
  * others with a stray leading digit. Google had the OLD slugs cached. By
@@ -13,13 +13,13 @@
  * The previous handler 410'd everything that didn't exact-match canonical_
  * products, which destroyed the ranking equity on ~739 dead URLs that were
  * actually LIVE products under drifted slugs. The whole site's ranked surface
- * is on /product/* — this was the bleeding.
+ * is on /product/* -- this was the bleeding.
  *
- * ────────────────────────────────────────────────────────────────────
+ * ----------------------------------------------------------------------------
  * Renderability is the gating condition, not slug existence
- * ────────────────────────────────────────────────────────────────────
+ * ----------------------------------------------------------------------------
  * /p/[slug] (the redirect target) doesn't just check that a canonical_products
- * row exists — getProductViewModel returns null and the page 404s unless:
+ * row exists -- getProductViewModel returns null and the page 404s unless:
  *   (a) a canonical_products row matches `slug` OR `{first-segment}-{slug}`
  *       (it does the doubled-prefix prepend itself), AND
  *   (b) that row has >= 1 linked `products` row (canonical_id FK).
@@ -36,9 +36,9 @@
  * getProductViewModel itself does: fetch the canonical row, then fetch
  * products WHERE canonical_id = id LIMIT 1. Same pattern as /p/[slug].
  *
- * ────────────────────────────────────────────────────────────────────
+ * ----------------------------------------------------------------------------
  * Resolution lanes (first hit wins)
- * ────────────────────────────────────────────────────────────────────
+ * ----------------------------------------------------------------------------
  * Recon (2026-05-14, n=999 dead slugs from GSC export):
  *
  *   L_exact     /p/{slug} renders directly via its own resolution        17.4%
@@ -48,7 +48,7 @@
  *
  *   L_contains  unique cp slug CONTAINS the dead slug AND has linked      12.0%
  *               products. Catches GSC-truncated slugs. Substring match
- *               is exact and uniqueness-guarded — cannot resolve to the
+ *               is exact and uniqueness-guarded -- cannot resolve to the
  *               wrong product.
  *               -> 301 /p/{trueSlug}
  *
@@ -74,9 +74,9 @@
  * only improve it. Shipping a working 30% beats holding for a tuned 60% that
  * might be wrong.
  *
- * ────────────────────────────────────────────────────────────────────
+ * ----------------------------------------------------------------------------
  * Notes
- * ────────────────────────────────────────────────────────────────────
+ * ----------------------------------------------------------------------------
  *   - 301 (permanent) tells Google to move the index entry.
  *   - 410 (Gone) de-indexes faster than 404. Correct for genuinely removed.
  *   - Redirect target is /p/{...} for canonical_products matches (L_exact,
@@ -87,6 +87,14 @@
  *     cpu_microarch, gpu_microarch) fall through to 410 rather than 301
  *     to a 404. Add to entityTypeToRoutePrefix() when those routes ship.
  *   - force-dynamic: per-request DB lookup, never prerendered.
+ *   - 301 and 410 responses both carry a 1-day Cache-Control (max-age +
+ *     s-maxage). Without it the 301s went out max-age=0, so every crawler
+ *     hit re-ran the DB lookup -- ~99% cache miss, the source of a Vercel
+ *     usage anomaly + Supabase connection load (ROADMAP, 2026-05-18). A
+ *     permanent redirect's target can still drift (a product can lose its
+ *     listings and flip to 410), so the cache is bounded to a day, not
+ *     immutable. force-dynamic governs prerendering, not response caching;
+ *     the explicit header is what the edge honours.
  *   - On Supabase error we 410 rather than 500; transient blips shouldn't
  *     surface as server errors. Google retries 410s.
  */
@@ -97,11 +105,20 @@ export const dynamic = "force-dynamic";
 
 /**
  * Minimum dead-slug length for the contains lane. Below this a substring
- * match is too weak to trust — short tokens can appear inside many live
+ * match is too weak to trust -- short tokens can appear inside many live
  * slugs. Recon used 25; kept here. Combined with the uniqueness check,
  * recon found 0 ambiguous matches across 999 slugs.
  */
 const MIN_CONTAINS_LEN = 25;
+
+/**
+ * Cache-Control for 301 and 410 responses. 1 day at the browser and the
+ * Vercel edge. Bounded (not immutable) because a 301 target can drift --
+ * see the header Notes. s-maxage is the field that actually offloads the
+ * function: a cached 301 at the edge means the crawler hit never reaches
+ * the DB lookup.
+ */
+const CACHE_ONE_DAY = "public, max-age=86400, s-maxage=86400";
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -137,7 +154,7 @@ async function canonicalHasListings(
  * present per WORKFLOW.md frontend file tree: `/chip` (gpu_chip),
  * `/board` (gpus), `/cpu` (cpu). Other entity_types (monitor,
  * cpu_microarch, gpu_microarch) have catalog data but no dedicated
- * route file as of 2026-05-15 — return null and fall through to 410.
+ * route file as of 2026-05-15 -- return null and fall through to 410.
  * Extend this switch when new entity routes ship.
  */
 function entityTypeToRoutePrefix(entityType: string): string | null {
@@ -171,7 +188,7 @@ export async function GET(
 
   const supabase = await createClient();
 
-  /* ── L_exact: will /p/{decodedSlug} render? ──────────────────────
+  /* -- L_exact: will /p/{decodedSlug} render? ----------------------------
      /p/[slug] does its own doubled-prefix prepend, so this handler just
      needs to verify that /p/ CAN resolve `decodedSlug` AND that the
      resolved canonical_products row has at least one linked products row.
@@ -181,7 +198,7 @@ export async function GET(
      IN-query, then explicitly check linked products on whichever row
      matched. (`!inner` on the embedded `products` relation does NOT
      filter the parent row when the inner join is empty in this schema
-     — see v3 note in header.) */
+     -- see v3 note in header.) */
   {
     const idx = decodedSlug.indexOf("-");
     const doubledSlug =
@@ -204,17 +221,17 @@ export async function GET(
     if (data) {
       const hasListings = await canonicalHasListings(supabase, data.id);
       if (hasListings) {
-        // /p/ can resolve and render. 301 to /p/{decodedSlug} unchanged —
+        // /p/ can resolve and render. 301 to /p/{decodedSlug} unchanged --
         // /p/ overrides to the clean (requested) slug internally.
         return redirectToProduct(request, decodedSlug);
       }
-      // Orphaned canonical row — exists but no listings. /p/ would 404.
+      // Orphaned canonical row -- exists but no listings. /p/ would 404.
       // Fall through to L_contains (a different live row might also
       // contain this slug as a substring, with linked products).
     }
   }
 
-  /* ── L_contains: GSC-truncated slug, unique containing live slug ────
+  /* -- L_contains: GSC-truncated slug, unique containing live slug -------
      Some dead slugs are leading substrings of longer live slugs (GSC
      truncated them mid-string). Substring match is exact and can't
      mismatch products; uniqueness guard prevents short-substring ambiguity.
@@ -222,7 +239,7 @@ export async function GET(
 
      We fetch up to 5 candidates without an inner-join (since !inner is
      unreliable here), then filter to those with linked products in JS.
-     Only 301 if EXACTLY ONE survives the renderability filter — else
+     Only 301 if EXACTLY ONE survives the renderability filter -- else
      410 to avoid guessing on ambiguous matches. */
   if (decodedSlug.length >= MIN_CONTAINS_LEN) {
     const idx = decodedSlug.indexOf("-");
@@ -250,17 +267,17 @@ export async function GET(
       for (const row of data) {
         if (await canonicalHasListings(supabase, row.id)) {
           renderable.push(row);
-          if (renderable.length > 1) break; // ambiguous — stop early
+          if (renderable.length > 1) break; // ambiguous -- stop early
         }
       }
       if (renderable.length === 1 && renderable[0]?.slug) {
         return redirectToProduct(request, renderable[0].slug);
       }
-      // 0 renderable, or >1 ambiguous → fall through to L_entities.
+      // 0 renderable, or >1 ambiguous -> fall through to L_entities.
     }
   }
 
-  /* ── L_entities: canonical_entities target (gpu_chip / gpus / cpu) ──
+  /* -- L_entities: canonical_entities target (gpu_chip / gpus / cpu) -----
      4 of 999 dead slugs (per 2026-05-14 recon) resolve into
      canonical_entities, not canonical_products. These are catalog rows
      ingested directly into the new schema (RTX 4000 Ada workstation,
@@ -268,14 +285,14 @@ export async function GET(
      entity_type to the per-type entity page; that route's own slug
      resolver handles clean-form vs doubled-prefix canonicalisation.
 
-     Same exact + doubled-prefix probe as L_exact: §3 of the bible
+     Same exact + doubled-prefix probe as L_exact: section 3 of the bible
      notes board entities (entity_type='gpus') inherit canonical_
      products' doubled-prefix slug pattern.
 
-     No renderability check equivalent to canonicalHasListings — entity
+     No renderability check equivalent to canonicalHasListings -- entity
      pages render encyclopedically even with zero retailer observations
-     (§9 honest-labeling: `encyclopedic_only` / `historical` tiers). The
-     entity page existing is enough.
+     (section 9 honest-labeling: `encyclopedic_only` / `historical` tiers).
+     The entity page existing is enough.
 
      Known entity_types without dedicated routes today (monitor,
      cpu_microarch, gpu_microarch) fall through to 410 via the null
@@ -309,7 +326,7 @@ export async function GET(
     }
   }
 
-  /* ── L_gone ────────────────────────────────────────────────────── */
+  /* -- L_gone ------------------------------------------------------------ */
   return goneResponse();
 }
 
@@ -319,7 +336,9 @@ function redirectToProduct(request: NextRequest, productSlug: string): Response 
     `/p/${encodeURIComponent(productSlug)}`,
     request.nextUrl.origin,
   );
-  return NextResponse.redirect(dest, 301);
+  const res = NextResponse.redirect(dest, 301);
+  res.headers.set("Cache-Control", CACHE_ONE_DAY);
+  return res;
 }
 
 /** 301 to a per-entity-type entity page (e.g. /chip/{slug}, /board/{slug}). */
@@ -332,7 +351,9 @@ function redirectToEntity(
     `${routePrefix}/${encodeURIComponent(entitySlug)}`,
     request.nextUrl.origin,
   );
-  return NextResponse.redirect(dest, 301);
+  const res = NextResponse.redirect(dest, 301);
+  res.headers.set("Cache-Control", CACHE_ONE_DAY);
+  return res;
 }
 
 /** 410 Gone with a friendly, noindex HTML body. */
@@ -341,7 +362,7 @@ function goneResponse(): Response {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Page removed — TrackAura</title>
+  <title>Page removed - TrackAura</title>
   <meta name="robots" content="noindex">
   <style>
     body { font-family: system-ui, sans-serif; max-width: 540px; margin: 80px auto; padding: 0 20px; color: #e6e6e6; background: #0a0a0a; }
@@ -361,7 +382,7 @@ function goneResponse(): Response {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "X-Robots-Tag": "noindex",
-      "Cache-Control": "public, max-age=86400, s-maxage=86400",
+      "Cache-Control": CACHE_ONE_DAY,
     },
   });
 }
