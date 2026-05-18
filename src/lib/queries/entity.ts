@@ -1,5 +1,6 @@
 ﻿import { createCatalogClient } from '@/lib/supabase/server';
 import { resolveRetailer, type RetailerKey } from '@/lib/retailers';
+import type { PriceBandPoint } from '@/types';
 import { fetchEntityAttributes, type EntityAttribute } from './entity-attributes';
 import {
   ENTITY_TYPES,
@@ -105,12 +106,13 @@ export type EntityListing = {
   matchConfidence: number | null;
 };
 
-/** One point in a leaf entity's price history, shaped for <PriceChart>.
-    `date` is the raw price_observations.observed_at timestamp â€” PriceChart
-    slices it to YYYY-MM-DD and daily-means. Open-box observations are
-    excluded upstream (fetchPriceHistory): the chart draws a daily MEAN, so
-    a mixed new/open-box day would average into a misleading figure. Leaves
-    only â€” branches resolve to []. */
+/** One point in an entity's price history, shaped for <PriceChart>.
+    For leaves: `date` is the raw price_observations.observed_at timestamp.
+    For branches (chips): `date` is a YYYY-MM-DD day and `price` is the
+    median across child-board observations on that day (fetchChipPriceHistory).
+    Either way PriceChart slices to YYYY-MM-DD and daily-means; the chip
+    series is pre-collapsed to one value per day so that mean is a no-op.
+    Open-box observations are excluded upstream in both paths. */
 export type PriceHistoryPoint = {
   date: string;
   price: number;
@@ -147,6 +149,12 @@ export type EntityChild = {
   routePrefix: string;
   name: string;
   brand: string | null;
+  /** Hero image URL. The child's own image_primary_url, or — when the
+      child entity type sets gridImageInheritsParent (CPUs, which share
+      one physical package per microarch) — the parent's image as a
+      fallback. Null when neither exists; the card renders "No image".
+      GPU boards do NOT inherit — boards are visually distinct products. */
+  imageUrl: string | null;
   listings: EntityListing[];
   lowestPrice: number | null;
   lowestPriceCurrency: string | null;
@@ -245,11 +253,20 @@ export type EntityViewModel = {
   /** Populated only for leaf entities. Branches: []. */
   listings: EntityListing[];
 
-  /** New-price observation series for this entity, oldest-first. Populated
-      for leaves only (price_observations.entity_id is the leaf's own id);
-      branches resolve to []. Open-box observations excluded. Consumed by
-      the Price history section in EntityPage via <PriceChart>. */
+  /** Price-history series for this entity, oldest-first. Populated for
+      LEAVES only — the entity's own price_observations rows. Branches
+      (chips) leave this [] and use priceBand instead. Open-box excluded.
+      Consumed by the leaf Price history section via <PriceChart>. */
   priceHistory: PriceHistoryPoint[];
+
+  /** Aggregated price BAND for a BRANCH entity (chip), oldest-first:
+      per-day min / max / median across all child-board observations
+      (fetchChipPriceHistory), 90d-windowed, open-box excluded. Empty []
+      for leaves. Consumed by the chip Price history section via the
+      band-mode chart. The min/max spread absorbs the day-to-day
+      board-mix noise that a single median line would show as false
+      volatility. */
+  priceBand: PriceBandPoint[];
 
   stats: EntityStats;
 
@@ -283,6 +300,18 @@ export type EntityViewModel = {
     daily-scrape margin. Matches getChipViewModel today. */
 const FRESHNESS_DAYS = 7;
 const OBSERVATION_LIMIT = 10_000;
+
+/** Window for the aggregated chip (branch) price-history chart. Bounds
+    row count on chips with many boards and matches the worth engine's
+    W2 horizon (WORTH_ENGINE_SPEC §2). Leaf history is unbounded; chip
+    history is 90d because it fans out across every child board. */
+const CHIP_HISTORY_WINDOW_DAYS = 90;
+
+/** Rolling-window width for the chip price band. Each output point
+    aggregates the trailing N days of board observations so the band
+    reflects a stable board set rather than one day's scrape subset.
+    7 days = one full daily-scrape cycle with margin. */
+const BAND_WINDOW_DAYS = 7;
 
 /** Tier classification window. Architecture Â§9 specifies the strengthened
     fed criterion as "ratio of actively-stocked SKUs at N>=3 fresh observations
@@ -571,8 +600,26 @@ export async function getEntityViewModel(
   let children: EntityChild[] = [];
   let ownListings: EntityListing[] = [];
   let priceHistory: PriceHistoryPoint[] = [];
+  let priceBand: PriceBandPoint[] = [];
   if (cfg.childEntityType) {
     children = await fetchChildren(supabase, String(entity.id), cfg.childEntityType);
+    /* Branch: aggregated price BAND from all child observations, per-day
+       min/max/median (Bible §6). Runs after fetchChildren so the child
+       id set is known.
+
+       GATED to gpu_chip only. A gpu_chip's children are boards — all
+       variants of the SAME chip, so a band across them ("what does an
+       RTX 5090 cost") is meaningful. A cpu_microarch's children are
+       distinct CPUs (a $50 Celeron and a $600 i9 are both Comet Lake),
+       so a band across them is a category price range, not a product
+       worth — misleading. cpu_microarch pages skip the band; CPU worth
+       lives on the individual /cpu leaf pages. */
+    if (entity.entity_type === 'gpu_chip') {
+      priceBand = await fetchChipPriceHistory(
+        supabase,
+        children.map((c) => c.id),
+      );
+    }
   } else {
     /* Leaf: own listings + full price-history series, in parallel.
        fetchOwnListings hits listings + price_observations for the
@@ -740,6 +787,7 @@ export async function getEntityViewModel(
     children,
     listings: ownListings,
     priceHistory,
+    priceBand,
     stats,
     freshRetailerCount,
     coverageTier,
@@ -758,7 +806,7 @@ async function fetchChildren(
 ): Promise<EntityChild[]> {
   const { data: rawChildren, error: childErr } = await supabase
     .from('canonical_entities')
-    .select('id, slug, canonical_name, display_name, brand, entity_type')
+    .select('id, slug, canonical_name, display_name, brand, image_primary_url, entity_type')
     .eq('parent_entity_id', parentId)
     .eq('entity_type', childType);
 
@@ -792,6 +840,22 @@ async function fetchChildren(
 
   /* Group listings by child id, attaching current observation. */
   const childCfg = getEntityTypeConfig(childType);
+
+  /* Parent-image fallback for the children grid. Only when the child
+     entity type opts in via gridImageInheritsParent (CPUs — every CPU
+     under one microarch is the same physical package, so the microarch
+     image is the honest image). NOT done for visually-distinct children
+     like GPU boards. One extra query, gated to the opt-in types. */
+  let parentImageUrl: string | null = null;
+  if (childCfg.gridImageInheritsParent) {
+    const { data: parentRow } = await supabase
+      .from('canonical_entities')
+      .select('image_primary_url')
+      .eq('id', parentId)
+      .maybeSingle();
+    parentImageUrl = parentRow?.image_primary_url ?? null;
+  }
+
   const listingsByChild = new Map<string, EntityListing[]>();
   for (const l of listings) {
     const obs = obsByListing.get(l.id);
@@ -848,6 +912,7 @@ async function fetchChildren(
       routePrefix: childCfg.routePrefix,
       name: c.display_name ?? c.canonical_name,
       brand: c.brand,
+      imageUrl: c.image_primary_url ?? parentImageUrl,
       listings: lst,
       lowestPrice: cheapest?.currentPrice ?? null,
       lowestPriceCurrency: cheapest?.currency ?? null,
@@ -998,6 +1063,122 @@ async function fetchPriceHistory(
     out.push({ date: o.observed_at as string, price });
   }
   return out;
+}
+
+/** Aggregated price BAND for a BRANCH entity (chip), built from every
+    child board's observations. One PriceBandPoint per day carrying the
+    min / max / median board price that day plus the observation count.
+
+    Why a band, not a single line: a chip has dozens of boards at very
+    different prices. A single median line jumps day-to-day purely from
+    which boards happened to be scraped, reading as false volatility. The
+    min/max band shows the real spread; the median line inside it is the
+    honest central trend (Bible §6: median, never min).
+
+    Scoped to CHIP_HISTORY_WINDOW_DAYS — a chip fans out across dozens of
+    boards, so an unbounded query is the row-count risk the leaf path
+    doesn't have. Branches must call THIS, not fetchPriceHistory: a chip's
+    own id has no price_observations rows (observations carry child board
+    ids), so fetchPriceHistory would return []. */
+async function fetchChipPriceHistory(
+  supabase: SupabaseClient,
+  childIds: string[],
+): Promise<PriceBandPoint[]> {
+  if (childIds.length === 0) return [];
+  const since = new Date(
+    Date.now() - CHIP_HISTORY_WINDOW_DAYS * 86_400_000,
+  ).toISOString();
+
+  const { data, error } = await supabase
+    .from('price_observations')
+    .select('entity_id, price, observed_at')
+    .in('entity_id', childIds)
+    .eq('is_openbox', false)
+    .gte('observed_at', since)
+    .order('observed_at', { ascending: true })
+    .limit(OBSERVATION_LIMIT);
+
+  if (error) {
+    console.error('[entity] chip price history fetch failed:', error);
+    return [];
+  }
+
+  /* Rolling-window aggregation (BAND_WINDOW_DAYS).
+
+     A single-calendar-day band thrashes: the scraper doesn't see every
+     board each day, so each day's min/max swings with whichever boards
+     happened to be in that day's batch, not with real price movement.
+
+     Fix: each output point aggregates the trailing BAND_WINDOW_DAYS of
+     observations. Over a 7-day window the scraper has almost certainly
+     seen most boards at least once, so every point is computed from
+     roughly the same full board set and the band stops jittering.
+
+     Within a window, each BOARD contributes once — its most recent
+     observation inside the window. A board scraped 5 days running must
+     not count 5x and drag the band toward its price; the unit is the
+     board, not the row (mirrors the worth engine's per-retailer
+     collapse). */
+  type Obs = { boardId: string; price: number; t: number };
+  const all: Obs[] = [];
+  for (const o of data ?? []) {
+    if (o.price == null || !o.observed_at) continue;
+    const price = Number(o.price);
+    if (Number.isNaN(price) || price < 0) continue;
+    const t = Math.floor(
+      new Date(o.observed_at as string).getTime() / 86_400_000,
+    );
+    all.push({ boardId: String(o.entity_id), price, t });
+  }
+  if (all.length === 0) return [];
+
+  /* Distinct observation days, ascending — one output point per day
+     that actually has data. */
+  const days = Array.from(new Set(all.map((o) => o.t))).sort((a, b) => a - b);
+  const firstDay = days[0];
+
+  /* Warm-up trim. A point at day D aggregates the trailing
+     BAND_WINDOW_DAYS, but for the first BAND_WINDOW_DAYS-1 days that
+     window reaches back before any data exists — it is computed from a
+     partial board set and the band is artificially narrow then wild as
+     coverage fills in. Those points are not trustworthy, so they are
+     dropped: the first emitted point is the first day whose full
+     trailing window lies within the observed range. If the catalog has
+     less than BAND_WINDOW_DAYS of history total, nothing is trimmed
+     (better a short honest chart than an empty one). */
+  const warmupCutoff = firstDay + (BAND_WINDOW_DAYS - 1);
+  const trimWarmup = days[days.length - 1] >= warmupCutoff;
+
+  const out: PriceBandPoint[] = [];
+  for (const day of days) {
+    if (trimWarmup && day < warmupCutoff) continue;
+    const lo = day - (BAND_WINDOW_DAYS - 1);
+    /* Most recent price per board within [lo, day]. */
+    const latestPerBoard = new Map<string, Obs>();
+    for (const o of all) {
+      if (o.t < lo || o.t > day) continue;
+      const prev = latestPerBoard.get(o.boardId);
+      if (prev == null || o.t > prev.t) latestPerBoard.set(o.boardId, o);
+    }
+    const prices = [...latestPerBoard.values()].map((o) => o.price);
+    if (prices.length === 0) continue;
+    out.push({
+      date: new Date(day * 86_400_000).toISOString().slice(0, 10),
+      min: Math.min(...prices),
+      max: Math.max(...prices),
+      median: medianOf(prices),
+      count: prices.length,
+    });
+  }
+  return out;
+}
+
+/** Median of a non-empty number array. Caller guarantees length >= 1
+    (byDay only creates a bucket when pushing into it). */
+function medianOf(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
 }
 
 async function buildBreadcrumbs(

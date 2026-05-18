@@ -8,6 +8,7 @@ import EntityChildren from './EntityChildren';
 import EntityListings from './EntityListings';
 import EntityLineage from './EntityLineage';
 import PriceChart from '@/components/PriceChart';
+import ChipPriceChart from '@/components/ChipPriceChart';
 
 type Props = { entity: EntityViewModel };
 
@@ -28,7 +29,7 @@ type Props = { entity: EntityViewModel };
      - Leaf:   3 tiles (listings + retailers + lowest/listed)
    Grid columns flip with isBranch so layout doesn't leave a gap.
 
-   Provenance text comes from CategoryConfig — Phase 1+ collectibles
+   Provenance text comes from CategoryConfig - Phase 1+ collectibles
    surface "Catalog data from Scryfall" etc. without touching this file.
 
    Note on JSON-LD: Schema.org Product / BreadcrumbList JSON-LD is
@@ -45,14 +46,14 @@ type Props = { entity: EntityViewModel };
        * encyclopedic_only:      "No retail data" sub
      - The amber callout's copy switches by tier so a `historical`
        leaf says "no current retail availability" rather than "all
-       listings are stale" — the bible's exact phrasing.
-     - Branches (chips) are unchanged — their tier is null because the
+       listings are stale" - the bible's exact phrasing.
+     - Branches (chips) are unchanged - their tier is null because the
        chip itself isn't sold; per-board labels in the children grid
        carry the trust signal instead.
 
    2026-05-11 (description rendering + Wikipedia attribution):
      - The `description` field was always populated on the view model
-       (entity.description_md → entity.description) but never rendered
+       (entity.description_md -> entity.description) but never rendered
        in this component. Latent since the entity-page system shipped;
        only surfaced when the Intel CPU microarch ingest became the
        first source of catalog descriptions. Adds a prose section
@@ -77,6 +78,22 @@ type Props = { entity: EntityViewModel };
      - Bible §7 lists "Lineage" as an EntityPage section; this commit
        satisfies that.
 
+   2026-05-18 (chip price chart placement + MSRP line):
+     - Price-history section moved up: it now sits directly after
+       Lineage and ABOVE the listings / children block, so on a chip
+       page the aggregated price chart is visible without scrolling
+       past 59 board cards. Previously it was the last section before
+       the footer (Active queue #5 feedback).
+     - PriceChart now receives an `msrp` reference line. msrp_cad is
+       stored in the entity's msrp_currency (USD for the Wikipedia GPU
+       ingest); the chart axis is CAD, so a raw USD figure would sit
+       far below the data. buildMsrpLine() converts at a single named
+       constant and labels the line with BOTH currencies
+       ("MSRP USD $1,999 (~CAD $2,759)") so the line is honest about
+       being a converted, approximate figure. When msrp_currency is
+       already CAD the value passes through unconverted and the label
+       omits the approximation tilde.
+
    Step-3c (2026-05-04): amber-callout and empty-state copy no longer
    include `cfg.label.toLowerCase()`. The lowercase output for
    `gpus.label = "GPU Board"` was rendering "this gpu board", which
@@ -91,7 +108,7 @@ type Props = { entity: EntityViewModel };
    Phase-0.5 polish (2026-05-04): EntitySpecs now receives
    inheritedAttributes + inheritedFromName so leaf pages (boards) can
    render parent-chip specs as a second "Inherited from X" block. View
-   model populates these only for leaves with parents — branches and
+   model populates these only for leaves with parents - branches and
    orphan leaves resolve them as []/null.
 
    Phase-0.5 polish (2026-05-05): Hero image renders when
@@ -109,6 +126,13 @@ const MONTH_ABBREV = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
+/* USD->CAD conversion for the MSRP reference line only. A single named
+   constant, not a live FX feed: MSRP is a fixed encyclopedic launch-price
+   attribute (Bible §6), and the line is explicitly labelled approximate
+   ("~CAD") so a slightly stale rate cannot mislead. Revisit if/when CAD
+   MSRPs are ingested directly, at which point conversion goes away. */
+const USD_TO_CAD = 1.38;
+
 function formatPrice(n: number, currency: string = 'CAD'): string {
   return `${currency} $${n.toLocaleString('en-CA', {
     minimumFractionDigits: 2,
@@ -117,11 +141,53 @@ function formatPrice(n: number, currency: string = 'CAD'): string {
 }
 
 /**
+ * Format MSRP for the hero subtitle, e.g. "MSRP USD $599".
+ * MSRP is a fixed encyclopedic launch-price attribute (Bible Section 6),
+ * not a live price - no decimal places, since Wikipedia MSRPs are
+ * whole-dollar figures. Currency is whatever the ingest stored (USD for
+ * the Wikipedia-sourced GPU MSRPs); never assume CAD.
+ */
+function formatMsrp(n: number, currency: string | null): string {
+  const cur = currency ?? 'USD';
+  return `MSRP ${cur} $${n.toLocaleString('en-CA')}`;
+}
+
+/**
+ * Build the MSRP reference-line inputs for <PriceChart>: a CAD-denominated
+ * value (the chart axis is CAD) plus a label that keeps the original
+ * currency visible.
+ *
+ * - msrp_currency === 'CAD': pass through, label "MSRP CAD $X".
+ * - msrp_currency === 'USD' (or null -> assume USD, the ingest default):
+ *   convert at USD_TO_CAD, label "MSRP USD $1,999 (~CAD $2,759)" so the
+ *   line is honestly flagged as a converted approximation.
+ *
+ * Returns null when the entity has no MSRP - PriceChart then draws no line.
+ */
+function buildMsrpLine(
+  entity: EntityViewModel,
+): { value: number; label: string } | null {
+  if (entity.msrp == null) return null;
+  const cur = entity.msrpCurrency ?? 'USD';
+  if (cur.toUpperCase() === 'CAD') {
+    return {
+      value: entity.msrp,
+      label: `MSRP CAD $${entity.msrp.toLocaleString('en-CA')}`,
+    };
+  }
+  const cad = Math.round(entity.msrp * USD_TO_CAD);
+  return {
+    value: cad,
+    label: `MSRP ${cur.toUpperCase()} $${entity.msrp.toLocaleString('en-CA')} (\u2248CAD $${cad.toLocaleString('en-CA')})`,
+  };
+}
+
+/**
  * Format an ISO date for display.
  *
  * Date-only strings (YYYY-MM-DD) are formatted directly without going
  * through the Date constructor, because `new Date('2025-01-30')` is
- * parsed as UTC midnight — which is the previous day in any negative
+ * parsed as UTC midnight - which is the previous day in any negative
  * UTC-offset timezone. RTX 5090's release date `2025-01-30` was
  * rendering as "Jan 29" in Eastern Time before this fix in ChipPage.
  * Logic preserved verbatim.
@@ -167,7 +233,7 @@ function buildAttributionParts(
  * Min / max / latest price across the price-history series, for
  * <PriceChart>'s minPrice / maxPrice / currentPrice props. The series is
  * oldest-first, so the last element is the most recent observation.
- * Returns zeroes for an empty series — callers gate on length >= 2 before
+ * Returns zeroes for an empty series - callers gate on length >= 2 before
  * rendering the chart, so those zeroes are never displayed.
  */
 function summarizePriceHistory(
@@ -203,7 +269,14 @@ export default function EntityPage({ entity }: Props) {
   /* Price-history series summary, for <PriceChart>'s reference-line and
      change-calculation props. Empty for branches and thin leaves. */
   const priceHistorySummary = summarizePriceHistory(entity.priceHistory);
-  const showPriceHistory = entity.priceHistory.length >= 2;
+  const msrpLine = buildMsrpLine(entity);
+
+  /* Two price-history shapes: leaves get a single-line <PriceChart> from
+     priceHistory; chips (branches) get a band <ChipPriceChart> from
+     priceBand. Each gates on its own series having >=2 points. */
+  const showLeafChart = !isBranch && entity.priceHistory.length >= 2;
+  const showChipChart = isBranch && entity.priceBand.length >= 2;
+  const showPriceHistory = showLeafChart || showChipChart;
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:py-12">
@@ -212,7 +285,7 @@ export default function EntityPage({ entity }: Props) {
         <EntityBreadcrumbs items={entity.breadcrumbs} />
       </div>
 
-      {/* Hero — title block + optional product image. Image floats right
+      {/* Hero - title block + optional product image. Image floats right
           on sm+ screens, stacks below on mobile. */}
       <header className="mb-8 sm:flex sm:items-start sm:justify-between sm:gap-6">
         <div className="min-w-0 flex-1">
@@ -220,7 +293,13 @@ export default function EntityPage({ entity }: Props) {
             {entity.name}
           </h1>
           <p className="mt-2 text-sm text-zinc-500">
-            {[entity.brand, releaseDate ? `Released ${releaseDate}` : null]
+            {[
+              entity.brand,
+              releaseDate ? `Released ${releaseDate}` : null,
+              entity.msrp != null
+                ? formatMsrp(entity.msrp, entity.msrpCurrency)
+                : null,
+            ]
               .filter(Boolean)
               .join(' \u00b7 ')}
           </p>
@@ -308,7 +387,7 @@ export default function EntityPage({ entity }: Props) {
         />
       </section>
 
-      {/* Specs — own attributes plus inherited attributes from parent
+      {/* Specs - own attributes plus inherited attributes from parent
           (leaves with parent only). Self-renders nothing when both lists
           are empty. */}
       <EntitySpecs
@@ -317,12 +396,46 @@ export default function EntityPage({ entity }: Props) {
         inheritedFromName={entity.inheritedFromName}
       />
 
-      {/* Lineage — predecessor / successor cards. Self-gates: renders
+      {/* Lineage - predecessor / successor cards. Self-gates: renders
           nothing when both are null. */}
       <EntityLineage
         predecessor={entity.predecessor}
         successor={entity.successor}
       />
+
+      {/* Price history - moved above the listings / children block
+          (2026-05-18) so the chip's aggregated price chart is visible
+          without scrolling past every board card. Self-gates at >=2
+          points: a single observation is a dot, not a chart. For a chip
+          (branch) the series is the median-per-day aggregate across all
+          child boards (getEntityViewModel.fetchChipPriceHistory); for a
+          leaf it is the entity's own observations. Open-box excluded
+          upstream either way. MSRP reference line drawn when the entity
+          has an MSRP (buildMsrpLine handles USD->CAD + honest labelling). */}
+      {showPriceHistory && (
+        <section className="mb-8">
+          <h2 className="mb-4 text-lg font-semibold">Price history</h2>
+          <div className="rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            {showChipChart ? (
+              <ChipPriceChart
+                band={entity.priceBand}
+                msrp={msrpLine?.value ?? null}
+                msrpLabel={msrpLine?.label}
+                releaseDate={entity.releaseDate}
+              />
+            ) : (
+              <PriceChart
+                data={entity.priceHistory}
+                currentPrice={priceHistorySummary.current}
+                minPrice={priceHistorySummary.min}
+                maxPrice={priceHistorySummary.max}
+                msrp={msrpLine?.value ?? null}
+                msrpLabel={msrpLine?.label}
+              />
+            )}
+          </div>
+        </section>
+      )}
 
       {/* No-current-prices callout. Tier-aware copy: a `historical`
           leaf says "no current retail availability" per Bible §9;
@@ -368,27 +481,7 @@ export default function EntityPage({ entity }: Props) {
         />
       )}
 
-      {/* Price history — new-price observation series for leaf entities.
-          Self-gates at >=2 points: a single observation is a dot, not a
-          chart, and the current price is already in the stats strip /
-          listings table. Branches resolve priceHistory to [] upstream, so
-          this never renders for a chip. Open-box observations are excluded
-          in getEntityViewModel — the line is new-price only. */}
-      {showPriceHistory && (
-        <section className="mt-8">
-          <h2 className="mb-4 text-lg font-semibold">Price history</h2>
-          <div className="rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <PriceChart
-              data={entity.priceHistory}
-              currentPrice={priceHistorySummary.current}
-              minPrice={priceHistorySummary.min}
-              maxPrice={priceHistorySummary.max}
-            />
-          </div>
-        </section>
-      )}
-
-      {/* Provenance footer — earned-trust posture, no spin. Per-category
+      {/* Provenance footer - earned-trust posture, no spin. Per-category
           text via CategoryConfig.provenance. */}
       <footer className="mt-12 border-t border-zinc-200 pt-6 text-xs text-zinc-500 dark:border-zinc-800">
         <p>{category.provenance}</p>
@@ -414,7 +507,7 @@ type PriceTileCopy = {
 
 function computePriceTileCopy(entity: EntityViewModel): PriceTileCopy {
   const hasCurrentPrices = entity.stats.lowestPrice != null;
-  /* Branch (chip) — keep existing aggregate framing. The chip's tier
+  /* Branch (chip) - keep existing aggregate framing. The chip's tier
      is null; per-child trust signals live in the children grid. */
   if (entity.coverageTier == null) {
     return {
@@ -423,7 +516,7 @@ function computePriceTileCopy(entity: EntityViewModel): PriceTileCopy {
       highlight: true,
     };
   }
-  /* Leaf — relabel by tier. */
+  /* Leaf - relabel by tier. */
   const display = getCoverageTierDisplay(entity.coverageTier);
   switch (entity.coverageTier) {
     case 'well_tracked':
@@ -436,7 +529,7 @@ function computePriceTileCopy(entity: EntityViewModel): PriceTileCopy {
     case 'single_source':
       return {
         label: 'Listed price',
-        sub: 'one retailer — no comparison',
+        sub: 'one retailer \u2014 no comparison',
         highlight: false,
       };
     case 'historical':
@@ -457,7 +550,7 @@ function computePriceTileCopy(entity: EntityViewModel): PriceTileCopy {
 type AmberCalloutCopy = { heading: string; body: string } | null;
 
 function computeAmberCalloutCopy(entity: EntityViewModel): AmberCalloutCopy {
-  /* Branch case — existing condition unchanged. The callout is meant
+  /* Branch case - existing condition unchanged. The callout is meant
      for the chip page where every board's listings exist but none have
      fresh observations. */
   if (entity.coverageTier == null) {
@@ -469,7 +562,7 @@ function computeAmberCalloutCopy(entity: EntityViewModel): AmberCalloutCopy {
     }
     return null;
   }
-  /* Leaf — tier-aware copy per Bible §9. */
+  /* Leaf - tier-aware copy per Bible §9. */
   switch (entity.coverageTier) {
     case 'historical':
       return {
@@ -477,7 +570,7 @@ function computeAmberCalloutCopy(entity: EntityViewModel): AmberCalloutCopy {
         body: 'No Canadian retailers we track have a fresh price for this in the last 48 hours. Listings shown reflect the most recent observations we have on record.',
       };
     case 'encyclopedic_only':
-      /* No listings to caveat — the EmptyState already covers this. */
+      /* No listings to caveat - the EmptyState already covers this. */
       return null;
     case 'single_source':
       /* Only one retailer carries this. Not stale; just narrow. The

@@ -13,11 +13,39 @@ import {
 } from "recharts";
 import { PricePoint } from "@/types";
 
+/* ---------------------------------------------------------------------
+   PriceChart
+
+   Single-line price chart for a LEAF entity (a GPU board, a CPU). The
+   chip band chart is a separate component (ChipPriceChart).
+
+   2026-05-18 (time-proportional X-axis):
+     - The X-axis was categorical (dataKey="date") - every observation
+       evenly spaced regardless of the real time between them. With
+       sparse data that LIES: one March observation and three May ones
+       rendered as four evenly-spaced points, and the stepAfter line
+       drew a flat plateau across the 7-week gap as if the price had
+       genuinely held. A reader could not tell "price was stable for
+       7 weeks" from "we have no data for 7 weeks".
+     - Now the X-axis is numeric epoch-days (type="number"), so the gap
+       between two observations is drawn to true scale. A long flat
+       segment now visibly corresponds to a long empty stretch, and a
+       dense cluster reads as dense. The line is still stepAfter (a
+       price holds until the next observation), but the geometry no
+       longer fabricates duration.
+   --------------------------------------------------------------------- */
+
 interface PriceChartProps {
   data: PricePoint[];
   currentPrice: number;
   minPrice: number;
   maxPrice: number;
+  /** Optional MSRP reference line, already converted to the chart's
+      display currency (CAD). null = no line drawn. */
+  msrp?: number | null;
+  /** Label for the MSRP reference line, e.g.
+      "MSRP USD $1,999 (~CAD $2,759)". */
+  msrpLabel?: string;
 }
 
 type Timeframe = "7d" | "30d" | "90d" | "all";
@@ -29,51 +57,67 @@ const TIMEFRAME_LABELS: Record<Timeframe, string> = {
   "all": "All",
 };
 
+const MS_PER_DAY = 86_400_000;
+
+/** Epoch-day integer for an ISO date/timestamp string (UTC-stable). */
+function epochDay(dateStr: string): number {
+  return Math.floor(new Date(dateStr).getTime() / MS_PER_DAY);
+}
+
+type DayPoint = { t: number; price: number; count: number };
+
 /**
- * Aggregate raw price points into daily mean prices.
- * Groups by YYYY-MM-DD and averages all prices for that day.
+ * Aggregate raw price points into daily means, keyed by epoch-day.
+ * Groups by UTC day and averages all prices for that day.
  */
-function aggregateDailyMean(data: PricePoint[]): { date: string; price: number; count: number }[] {
-  const byDay: Record<string, number[]> = {};
-
+function aggregateDailyMean(data: PricePoint[]): DayPoint[] {
+  const byDay: Record<number, number[]> = {};
   for (const point of data) {
-    // Extract just the date portion (YYYY-MM-DD)
-    const day = point.date.slice(0, 10);
-    if (!byDay[day]) byDay[day] = [];
-    byDay[day].push(point.price);
+    const t = epochDay(point.date);
+    if (Number.isNaN(t)) continue;
+    if (!byDay[t]) byDay[t] = [];
+    byDay[t].push(point.price);
   }
-
   return Object.entries(byDay)
-    .map(([day, prices]) => ({
-      date: day,
+    .map(([t, prices]) => ({
+      t: Number(t),
       price: Math.round((prices.reduce((a, b) => a + b, 0) / prices.length) * 100) / 100,
       count: prices.length,
     }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .sort((a, b) => a.t - b.t);
 }
 
-/**
- * Filter data to a specific timeframe.
- */
-function filterByTimeframe(data: { date: string; price: number; count: number }[], timeframe: Timeframe) {
+/** Filter daily points to a timeframe (by epoch-day cutoff). */
+function filterByTimeframe(data: DayPoint[], timeframe: Timeframe): DayPoint[] {
   if (timeframe === "all") return data;
-
-  const now = new Date();
   const days = timeframe === "7d" ? 7 : timeframe === "30d" ? 30 : 90;
-  const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-
-  return data.filter((d) => d.date >= cutoffStr);
+  const cutoff = Math.floor(Date.now() / MS_PER_DAY) - days;
+  return data.filter((d) => d.t >= cutoff);
 }
 
-function formatDateShort(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+/** Format an epoch-day integer to a short axis label. */
+function formatDay(t: number): string {
+  const d = new Date(t * MS_PER_DAY);
+  return d.toLocaleDateString("en-CA", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function formatDayLong(t: number): string {
+  const d = new Date(t * MS_PER_DAY);
+  return d.toLocaleDateString("en-CA", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 function CustomTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
-  const point = payload[0].payload;
+  const point: DayPoint = payload[0].payload;
   return (
     <div
       style={{
@@ -85,11 +129,7 @@ function CustomTooltip({ active, payload }: any) {
       }}
     >
       <p style={{ color: "var(--text-secondary)", marginBottom: "0.25rem" }}>
-        {new Date(point.date + "T00:00:00").toLocaleDateString("en-CA", {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        })}
+        {formatDayLong(point.t)}
       </p>
       <p className="price-tag" style={{ fontSize: "1rem" }}>
         ${point.price.toFixed(2)}
@@ -103,39 +143,31 @@ function CustomTooltip({ active, payload }: any) {
   );
 }
 
-export default function PriceChart({ data, currentPrice, minPrice, maxPrice }: PriceChartProps) {
+export default function PriceChart({ data, minPrice, maxPrice, msrp, msrpLabel }: PriceChartProps) {
   const [timeframe, setTimeframe] = useState<Timeframe>("all");
 
-  // Mount gate prevents Recharts from measuring dimensions during SSR
-  // (would otherwise emit `width(-1) height(-1)` warning at build time
-  // and produce a first-paint glitch at runtime). Placeholder div below
-  // holds the same height to prevent layout shift on hydration.
+  // Mount gate prevents Recharts measuring dimensions during SSR
+  // (width(-1) height(-1) warning + first-paint glitch).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  // Aggregate to daily means
   const dailyData = useMemo(() => aggregateDailyMean(data), [data]);
 
-  // Filter by selected timeframe
   const filteredData = useMemo(
     () => filterByTimeframe(dailyData, timeframe),
     [dailyData, timeframe]
   );
 
-  // Determine which timeframes have data
+  // Which timeframes have data (by real day-span).
   const availableTimeframes = useMemo(() => {
     if (dailyData.length === 0) return [];
     const available: Timeframe[] = [];
-    const now = new Date();
-    const earliest = new Date(dailyData[0].date + "T00:00:00");
-    const daySpan = Math.ceil((now.getTime() - earliest.getTime()) / (24 * 60 * 60 * 1000));
-
-    // Always show All
+    const nowDay = Math.floor(Date.now() / MS_PER_DAY);
+    const daySpan = nowDay - dailyData[0].t;
     available.push("all");
     if (daySpan >= 7) available.unshift("90d");
     if (daySpan >= 3) available.unshift("30d");
     if (daySpan >= 2) available.unshift("7d");
-
     return available;
   }, [dailyData]);
 
@@ -154,14 +186,23 @@ export default function PriceChart({ data, currentPrice, minPrice, maxPrice }: P
     );
   }
 
-  // Calculate Y axis domain with padding
+  // Y domain padded; extended to include the MSRP line so it's not clipped.
   const prices = filteredData.map((d) => d.price);
-  const yMin = Math.floor(Math.min(...prices) * 0.95);
-  const yMax = Math.ceil(Math.max(...prices) * 1.05);
+  const domainLo = msrp != null ? Math.min(Math.min(...prices), msrp) : Math.min(...prices);
+  const domainHi = msrp != null ? Math.max(Math.max(...prices), msrp) : Math.max(...prices);
+  const yMin = Math.floor(domainLo * 0.95);
+  const yMax = Math.ceil(domainHi * 1.05);
+
+  // X domain: true epoch-day range so gaps render to scale. A single
+  // point gets a +/- 1 day pad so it isn't drawn on the axis edge.
+  const xLo = filteredData.length ? filteredData[0].t : 0;
+  const xHi = filteredData.length ? filteredData[filteredData.length - 1].t : 0;
+  const xMin = xLo === xHi ? xLo - 1 : xLo;
+  const xMax = xLo === xHi ? xHi + 1 : xHi;
 
   const isSparse = data.length < 7;
 
-  // Calculate price change for the selected timeframe
+  // Price change across the filtered window.
   const priceChange = filteredData.length >= 2
     ? filteredData[filteredData.length - 1].price - filteredData[0].price
     : 0;
@@ -211,11 +252,14 @@ export default function PriceChart({ data, currentPrice, minPrice, maxPrice }: P
       {/* Chart */}
       {mounted ? (
         <ResponsiveContainer width="100%" height={320}>
-          <LineChart data={filteredData} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+          <LineChart data={filteredData} margin={{ top: 8, right: 12, bottom: 8, left: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
             <XAxis
-              dataKey="date"
-              tickFormatter={formatDateShort}
+              dataKey="t"
+              type="number"
+              scale="linear"
+              domain={[xMin, xMax]}
+              tickFormatter={formatDay}
               stroke="var(--text-secondary)"
               fontSize={11}
               tickLine={false}
@@ -246,6 +290,20 @@ export default function PriceChart({ data, currentPrice, minPrice, maxPrice }: P
                 }}
               />
             )}
+            {msrp != null && (
+              <ReferenceLine
+                y={msrp}
+                stroke="var(--text-secondary)"
+                strokeDasharray="5 4"
+                opacity={0.75}
+                label={{
+                  value: msrpLabel ?? `MSRP $${msrp.toFixed(0)}`,
+                  fill: "var(--text-secondary)",
+                  fontSize: 10,
+                  position: "insideBottomRight",
+                }}
+              />
+            )}
             <Line
               type="stepAfter"
               dataKey="price"
@@ -264,7 +322,7 @@ export default function PriceChart({ data, currentPrice, minPrice, maxPrice }: P
       {/* Sparse data message */}
       {isSparse && (
         <p style={{ textAlign: "center", fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.5rem", fontStyle: "italic" }}>
-          {"Building price history \u2014 prices are checked daily. Set a price alert to get notified of drops."}
+          {"Building price history \u2014 prices are checked daily. A flat line between two far-apart points means no data in between, not a held price."}
         </p>
       )}
     </div>

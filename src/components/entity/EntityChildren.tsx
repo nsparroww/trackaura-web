@@ -1,7 +1,10 @@
+'use client';
+
+import { useState } from 'react';
 import Link from 'next/link';
 import ClickTracker from '@/components/ClickTracker';
 import { ga4EventForRetailer } from '@/lib/affiliate';
-import type { EntityChild } from '@/lib/queries/entity';
+import type { EntityChild, EntityListing } from '@/lib/queries/entity';
 import {
   getCoverageTierDisplay,
   tierBadgeClasses,
@@ -15,65 +18,65 @@ type Props = {
 /* ---------------------------------------------------------------------
    EntityChildren
 
-   Branch render layer. Each child gets a card with:
-     - Header: name (link) + lowest current price + coverage-tier badge
-     - Inline listings list (up to 6) - retailer / price / View link
-     - "+ N more" link to the child page when truncated
+   Branch render layer. Renders a parent entity's children (the GPU
+   boards under a gpu_chip, the CPUs under a cpu_microarch) as a
+   responsive card grid - the same left-to-right shopping-grid shape as
+   the chip list on /c/[slug].
 
-   NOT exercised by /board/[slug] (a leaf route). Lives here so Step 3
-   chip-page cutover swaps `<BoardTable boards={...} />` for
-   `<EntityChildren items={...} />` without writing new code at cutover
-   time. If BoardTable's exact visual is preferred, port its internals
-   into this file at Step 3 instead - the contract (props shape) stays
-   the same.
+   Each card:
+     - hero image (canonical_entities.image_primary_url) with a "No
+       image" fallback, matching the /c/[slug] card. Per-card image-load
+       guard: a scraped board image URL that 404s falls back to the
+       placeholder instead of a broken-image icon.
+     - coverage-tier badge + listing-count subtext (the Bible Sec 9
+       trust signal)
+     - child name -> child entity page
+     - lowest current price, emerald only when the tier allows
+       comparison framing (well_tracked / tracked); neutral otherwise
+       (single_source / historical / encyclopedic_only - a real price,
+       but not "lowest of N")
+     - one outbound retailer button to the cheapest priced listing,
+       through <ClickTracker> for GA4. "Buy at" when the child has a
+       fresh retailer; "View at" for a historical (stale) price so the
+       button never overstates current availability (Bible Sec 9).
+     - a secondary link into the child page for the full per-retailer
+       comparison
 
-   Truncation depth (6) is a load-time guess. Most chips have 1-12
-   boards; chips with 30+ boards (rare AIB-heavy SKUs) push the page
-   too long without truncation.
+   2026-05-17 (grid-card rewrite):
+     - Replaced the vertical stack of wide article rows with a card
+       grid; per-card listing list moved to the child /board page.
+   2026-05-17 (image slot):
+     - Added the hero image box. EntityChild now carries imageUrl
+       (see queries/entity.ts fetchChildren). The image is the child's
+       OWN image_primary_url - never inherited from the parent, since
+       every sibling under one chip would otherwise render an identical
+       picture. This module is now a client component for the
+       image-load error guard, mirroring the /c/[slug] card.
 
-   2026-05-08 (Bible Sec 9 honest-labeling, this commit):
-     - Per-card tier badge replaces the previous "X retailers" /
-       "X listings (stale)" text. Badge carries the trust signal
-       semantically; subtext below adds the concrete count.
-     - Lowest-price emerald styling drops to neutral when the card's
-       tier doesn't allow comparison framing (single_source,
-       historical, encyclopedic_only). On a single-source card the
-       price is real but it isn't "lowest of N" - styling shouldn't
-       imply otherwise.
-     - Per-child tier comes from the data layer's loose heuristic
-       (any active listing implies historical). Strict beyond-7d
-       check is reserved for leaf pages to avoid an N+1 query on
-       chips with 50+ boards. See queries/entity.ts.
-
-   Step-3 (2026-05-04): each row's outbound View link goes through
-   <ClickTracker> for GA4. The label is the *child* entity name (each
-   row represents a different board), not the parent chip - that's
-   what answers "which board did the user click through on" in the
-   GA4 report. Category threads through unchanged because all children
-   under a parent share the parent's category.
+   2026-05-18 (collapse-with-expander):
+     - A chip like RTX 5090 has 59 boards; rendering all of them inline
+       is an endless scroll. The grid now shows the first
+       INITIAL_VISIBLE cards and folds the rest behind a "Show all N"
+       button.
+     - IMPORTANT - crawlability: every card is still rendered into the
+       DOM. The overflow cards are present in the server HTML and only
+       visually hidden (CSS), so the Bible Sec 1 machine user and search
+       crawlers still see every board's link in the initial response.
+       This is a VISUAL collapse, not a data truncation - the prior
+       "card count is NOT truncated" rule is preserved in substance:
+       nothing is hidden from HTML, only folded in the viewport.
+     - The expander is client-only (useState); with JS disabled the
+       page degrades to all-cards-visible, which is also fine.
    --------------------------------------------------------------------- */
 
-const VISIBLE_LISTINGS = 6;
+/** How many board cards show before the "Show all" fold. */
+const INITIAL_VISIBLE = 12;
 
 function formatPrice(n: number, currency: string = 'CAD'): string {
   return `${currency} $${n.toLocaleString('en-CA', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
-}
-
-function formatRelative(iso: string | null): string {
-  if (!iso) return 'never';
-  const ms = Date.now() - new Date(iso).getTime();
-  if (Number.isNaN(ms)) return 'never';
-  const hours = Math.floor(ms / 3_600_000);
-  if (hours < 1) return 'just now';
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
-  return `${Math.floor(days / 30)}mo ago`;
 }
 
 function childCountText(child: EntityChild): string {
@@ -86,114 +89,175 @@ function childCountText(child: EntityChild): string {
   return 'no listings';
 }
 
-export default function EntityChildren({ items, entityCategory }: Props) {
+/** Cheapest listing carrying both a current price and a URL. Computed
+    here rather than assuming child.listings arrives price-sorted. */
+function cheapestListing(child: EntityChild): EntityListing | null {
+  let best: EntityListing | null = null;
+  let bestPrice = Infinity;
+  for (const l of child.listings) {
+    if (l.currentPrice == null || !l.url) continue;
+    if (l.currentPrice < bestPrice) {
+      best = l;
+      bestPrice = l.currentPrice;
+    }
+  }
+  return best;
+}
+
+function EntityChildCard({
+  child,
+  entityCategory,
+}: {
+  child: EntityChild;
+  entityCategory: string;
+}) {
+  /* Per-card image-load guard. Scraped board image URLs drift and 404;
+     without this the broken-image icon and alt text bleed into the card.
+     Mirrors the /c/[slug] ProductCard guard. */
+  const [imgFailed, setImgFailed] = useState(false);
+
+  const href = `${child.routePrefix}/${child.cleanSlug}`;
+  const tierDisplay = getCoverageTierDisplay(child.coverageTier);
+  const priceClass = tierDisplay.allowsComparisonFraming
+    ? 'text-lg font-semibold tabular-nums text-emerald-700 dark:text-emerald-400'
+    : 'text-lg font-semibold tabular-nums text-zinc-900 dark:text-zinc-100';
+
+  const cheapest = cheapestListing(child);
+  const listingCount = child.listings.length;
+  const hasFreshRetailer =
+    tierDisplay.allowsComparisonFraming ||
+    child.coverageTier === 'single_source';
+  const buyVerb = hasFreshRetailer ? 'Buy at' : 'View at';
+
+  const showImage = !!child.imageUrl && !imgFailed;
+
   return (
-    <div className="space-y-3">
-      {items.map((child) => {
-        const href = `${child.routePrefix}/${child.cleanSlug}`;
-        const visible = child.listings.slice(0, VISIBLE_LISTINGS);
-        const overflow = Math.max(0, child.listings.length - visible.length);
-        const tierDisplay = getCoverageTierDisplay(child.coverageTier);
-        const priceClass = tierDisplay.allowsComparisonFraming
-          ? 'font-semibold tabular-nums text-emerald-700 dark:text-emerald-400'
-          : 'font-semibold tabular-nums text-zinc-900 dark:text-zinc-100';
+    <article className="flex h-full flex-col overflow-hidden rounded border border-zinc-200 bg-white transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
+      <Link
+        href={href}
+        className="group relative block aspect-[4/3] overflow-hidden border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950"
+      >
+        {showImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={child.imageUrl as string}
+            alt={child.name}
+            onError={() => setImgFailed(true)}
+            loading="lazy"
+            className="h-full w-full object-contain p-3 transition duration-200 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-[10px] text-zinc-400 dark:text-zinc-600">
+            No image
+          </div>
+        )}
+      </Link>
 
-        return (
-          <article
-            key={child.id}
-            className="rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+      <div className="flex flex-1 flex-col p-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${tierBadgeClasses(tierDisplay.tone)}`}
           >
-            <header className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <Link
-                href={href}
-                className="text-base font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
-              >
-                {child.name}
-              </Link>
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
-                {child.lowestPrice != null ? (
-                  <span className={priceClass}>
-                    {formatPrice(
-                      child.lowestPrice,
-                      child.lowestPriceCurrency ?? 'CAD',
-                    )}
-                  </span>
-                ) : (
-                  <span className="text-zinc-500">no current price</span>
-                )}
-                <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${tierBadgeClasses(tierDisplay.tone)}`}
-                >
-                  {tierDisplay.shortLabel}
-                </span>
-                <span className="text-xs text-zinc-500">
-                  {childCountText(child)}
-                </span>
-              </div>
-            </header>
+            {tierDisplay.shortLabel}
+          </span>
+          <span className="text-right text-[11px] text-zinc-500">
+            {childCountText(child)}
+          </span>
+        </div>
 
-            {child.listings.length > 0 ? (
-              <ul className="divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
-                {visible.map((l) => (
-                  <li
-                    key={l.id}
-                    className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-1.5"
-                  >
-                    <span className="text-zinc-600 dark:text-zinc-400">
-                      {l.retailerName}
-                      {l.isOpenBox && (
-                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                          Open box
-                        </span>
-                      )}
-                    </span>
-                    <span className="flex items-baseline gap-3">
-                      {l.currentPrice != null ? (
-                        <span className="tabular-nums text-zinc-900 dark:text-zinc-100">
-                          {formatPrice(l.currentPrice, l.currency)}
-                        </span>
-                      ) : (
-                        <span
-                          className="text-zinc-500"
-                          suppressHydrationWarning
-                        >
-                          last seen {formatRelative(l.lastSeen)}
-                        </span>
-                      )}
-                      {l.url && (
-                        <ClickTracker
-                          href={l.url}
-                          event={ga4EventForRetailer(l.retailerName)}
-                          label={child.name}
-                          retailer={l.retailerName}
-                          category={entityCategory}
-                          price={l.currentPrice ?? 0}
-                          className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-                        >
-                          View &rarr;
-                        </ClickTracker>
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-zinc-500">No active listings.</p>
-            )}
+        <Link
+          href={href}
+          className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold text-zinc-900 hover:underline dark:text-zinc-100"
+        >
+          {child.name}
+        </Link>
 
-            {overflow > 0 && (
-              <p className="mt-2 text-right">
-                <Link
-                  href={href}
-                  className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  + {overflow} more &rarr;
-                </Link>
-              </p>
-            )}
-          </article>
-        );
-      })}
+        <div className="mt-auto pt-3">
+          {child.lowestPrice != null ? (
+            <span className={priceClass}>
+              {formatPrice(
+                child.lowestPrice,
+                child.lowestPriceCurrency ?? 'CAD',
+              )}
+            </span>
+          ) : (
+            <span className="text-sm text-zinc-500">No current price</span>
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-col gap-1.5">
+          {cheapest && (
+            <ClickTracker
+              href={cheapest.url}
+              event={ga4EventForRetailer(cheapest.retailerName)}
+              label={child.name}
+              retailer={cheapest.retailerName}
+              category={entityCategory}
+              price={cheapest.currentPrice ?? 0}
+              className="rounded bg-blue-600 px-3 py-1.5 text-center text-sm font-medium text-white hover:bg-blue-700"
+            >
+              {`${buyVerb} ${cheapest.retailerName} \u2192`}
+            </ClickTracker>
+          )}
+          <Link
+            href={href}
+            className="text-center text-xs text-blue-600 hover:underline dark:text-blue-400"
+          >
+            {listingCount > 0
+              ? `View ${listingCount} listing${listingCount === 1 ? '' : 's'} \u2192`
+              : 'View details \u2192'}
+          </Link>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+export default function EntityChildren({ items, entityCategory }: Props) {
+  const [expanded, setExpanded] = useState(false);
+  const hasOverflow = items.length > INITIAL_VISIBLE;
+  const hiddenCount = items.length - INITIAL_VISIBLE;
+
+  return (
+    <div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {items.map((child, i) => {
+          /* Every card is rendered into the DOM for crawlability (Bible
+             Sec 1 machine user). Overflow cards past INITIAL_VISIBLE are
+             only VISUALLY hidden until expanded - the links are still in
+             the server HTML. */
+          const hidden = !expanded && i >= INITIAL_VISIBLE;
+          return (
+            <div key={child.id} className={hidden ? 'hidden' : undefined}>
+              <EntityChildCard child={child} entityCategory={entityCategory} />
+            </div>
+          );
+        })}
+      </div>
+
+      {hasOverflow && !expanded && (
+        <div className="mt-6 text-center">
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="rounded border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+          >
+            {`Show all ${items.length} \u2014 ${hiddenCount} more`}
+          </button>
+        </div>
+      )}
+
+      {hasOverflow && expanded && (
+        <div className="mt-6 text-center">
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="rounded border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+          >
+            Show fewer
+          </button>
+        </div>
+      )}
     </div>
   );
 }

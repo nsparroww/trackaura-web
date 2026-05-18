@@ -34,6 +34,24 @@ export interface PricePoint {
   date: string;
 }
 
+/**
+ * One day's aggregated price band for a BRANCH entity (a GPU chip),
+ * built from all its child boards' observations. Unlike PricePoint
+ * (one price), a band carries the spread: min/max bound the cheapest
+ * and dearest board that day, median is the central trend.
+ *
+ * Used only by the chip price chart (ChipPriceChart). Leaf pages keep
+ * using PricePoint. `date` is YYYY-MM-DD. `count` is how many board
+ * observations went into the day (drives the "N boards" tooltip text).
+ */
+export interface PriceBandPoint {
+  date: string;
+  min: number;
+  max: number;
+  median: number;
+  count: number;
+}
+
 export interface SiteStats {
   totalProducts: number;
   totalPricePoints: number;
