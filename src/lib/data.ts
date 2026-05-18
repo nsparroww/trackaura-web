@@ -87,16 +87,19 @@ const PRODUCT_COLUMNS = `
 // within freshness budget. If a scrape needs to invalidate immediately,
 // call revalidateTag('products') from a route handler.
 //
-// Followup: most callers don't actually need the full product list.
-// brand/[brand] wants a brand filter; categories/ wants DISTINCT category +
-// counts; sitemaps wants id/slug/category only. Replace incrementally
-// (see ARCHITECTURE.md §10 tail). Until then, this cache is the bandage.
+// NOTE (2026-05-18): unstable_cache silently fails on this function —
+// the full-catalog payload (~40K rows) serializes to ~41MB, far over
+// Next.js's 2MB data-cache item cap, so the cache never stores it and
+// every /trends request re-ran the full scan. /trends no longer calls
+// getAllProducts(); it uses getCategoryStats() below, which aggregates
+// in SQL and returns ~28 rows. Remaining callers that only need a
+// projection should migrate the same way (see ARCHITECTURE.md §10 tail).
 
 const ALL_PRODUCTS_TTL_SECONDS = 1800;
 
 const _fetchAllProducts = async (): Promise<Product[]> => {
   // Full-catalog fetch is expensive (~20MB wire, ~40K rows). Prefer
-  // getProductsByCategory / getFilteredProducts where possible.
+  // getProductsByCategory / getFilteredProducts / getCategoryStats.
   const res = await pool.query(
     `SELECT ${PRODUCT_COLUMNS} FROM products ORDER BY id`
   );
@@ -174,6 +177,99 @@ export const getCategoryTopBrands = cache(async (category: string, limit: number
     .map((r: any) => String(r.brand || "").trim())
     .filter((b) => b.length > 0);
 });
+
+// ------------------------------------------------------------
+// Per-category stats for /trends.
+//
+// Replaces the old pattern of pulling all ~40K product rows via
+// getAllProducts() and aggregating in JS. That payload blew the
+// unstable_cache 2MB cap (~41MB), so the cache silently no-op'd and
+// every /trends hit re-scanned the full table.
+//
+// This does the same aggregation in SQL — one GROUP BY category,
+// ~28 rows out — so the cached result is tiny and the cap is never
+// an issue. One row per category plus a synthetic "__overall__" row
+// so the page gets the site-wide numbers from the same call.
+//
+// Field meanings (match the old in-JS math in trends/page.tsx):
+//   count        - products in the category
+//   avg          - mean current_price
+//   median       - percentile_cont(0.5) of current_price
+//   atLowest     - current_price <= min_price AND price_count > 1
+//   withDrops    - current_price < max_price AND min_price < max_price
+//   dropPercent  - round(withDrops / count * 100)
+//   avgAboveLow  - mean of (current_price - min_price)/min_price * 100,
+//                  over rows with min_price > 0 AND price_count > 1
+// ------------------------------------------------------------
+
+export interface CategoryStat {
+  category: string;
+  count: number;
+  avg: number;
+  median: number;
+  atLowest: number;
+  withDrops: number;
+  dropPercent: number;
+  avgAboveLow: number;
+}
+
+const _fetchCategoryStats = async (): Promise<CategoryStat[]> => {
+  // GROUPING SETS gives per-category rows plus one grand-total row in a
+  // single scan; the grand total comes back with category = NULL, which
+  // we relabel "__overall__".
+  const res = await pool.query(
+    `
+    SELECT
+      COALESCE(category, '__overall__')                       AS category,
+      COUNT(*)::int                                           AS count,
+      AVG(current_price)::float8                              AS avg,
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY current_price)::float8
+                                                              AS median,
+      COUNT(*) FILTER (
+        WHERE current_price <= min_price AND price_count > 1
+      )::int                                                  AS at_lowest,
+      COUNT(*) FILTER (
+        WHERE current_price < max_price AND min_price < max_price
+      )::int                                                  AS with_drops,
+      AVG(
+        CASE
+          WHEN min_price > 0 AND price_count > 1
+          THEN (current_price - min_price) / min_price * 100
+        END
+      )::float8                                               AS avg_above_low
+    FROM products
+    WHERE current_price IS NOT NULL
+    GROUP BY GROUPING SETS ((category), ())
+    `
+  );
+
+  return res.rows.map((r: any) => {
+    const count = Number(r.count) || 0;
+    const withDrops = Number(r.with_drops) || 0;
+    return {
+      category: r.category as string,
+      count,
+      avg: toNumber(r.avg),
+      median: toNumber(r.median),
+      atLowest: Number(r.at_lowest) || 0,
+      withDrops,
+      dropPercent: count > 0 ? Math.round((withDrops / count) * 100) : 0,
+      avgAboveLow: toNumber(r.avg_above_low),
+    };
+  });
+};
+
+const CATEGORY_STATS_TTL_SECONDS = 1800;
+
+const _cachedFetchCategoryStats = unstable_cache(
+  _fetchCategoryStats,
+  ["category-stats-v1"],
+  { revalidate: CATEGORY_STATS_TTL_SECONDS, tags: ["products"] }
+);
+
+export const getCategoryStats = cache(
+  async (): Promise<CategoryStat[]> => _cachedFetchCategoryStats()
+);
 
 // ============================================================
 // Uncached reads — unique args per call, so caching wouldn't help.

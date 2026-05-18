@@ -1,6 +1,6 @@
 import { Metadata } from "next";
 import Link from "next/link";
-import { getAllProducts, getPriceIndex } from "@/lib/data";
+import { getCategoryStats, getPriceIndex } from "@/lib/data";
 import { formatPrice } from "@/lib/utils";
 import { CATEGORY_LABELS, CATEGORY_ICONS } from "@/types";
 import PriceIndexChart from "@/components/PriceIndexChart";
@@ -46,69 +46,50 @@ const CATEGORY_COLORS: Record<string, string> = {
   nas: "#78e08f",
 };
 
+// Synthetic category key for the site-wide grand-total row returned by
+// getCategoryStats() (see data.ts — GROUPING SETS produces this).
+const OVERALL_KEY = "__overall__";
+
 export default async function TrendsPage() {
-  const allProducts = await getAllProducts();
+  // Per-category + grand-total stats, aggregated in SQL. Replaces the
+  // old getAllProducts() full-catalog fetch (~40K rows, ~41MB) that
+  // blew the unstable_cache 2MB cap.
+  const categoryStatsRaw = await getCategoryStats();
   const priceIndex = await getPriceIndex();
   const month = new Date().toLocaleString("en-CA", { month: "long" });
   const year = new Date().getFullYear();
 
-  // Build category stats
-  const categoryStats = Object.entries(CATEGORY_LABELS)
-    .filter(([key]) => key !== "other")
-    .map(([key, label]) => {
-      const products = allProducts.filter((p) => p.category === key);
-      if (products.length === 0) return null;
+  // Split the grand-total row out from the per-category rows.
+  const overallStat = categoryStatsRaw.find((s) => s.category === OVERALL_KEY);
+  const perCategory = categoryStatsRaw.filter((s) => s.category !== OVERALL_KEY);
 
-      const prices = products.map((p) => p.currentPrice);
-      const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
-      const median = [...prices].sort((a, b) => a - b)[Math.floor(prices.length / 2)];
+  // Build the category table, ordered like the old page (count desc),
+  // and only for categories that have a known label and at least one
+  // product — same filter the old getAllProducts() version applied.
+  const categoryStats = perCategory
+    .filter((s) => s.category !== "other" && CATEGORY_LABELS[s.category] && s.count > 0)
+    .map((s) => ({
+      key: s.category,
+      label: CATEGORY_LABELS[s.category] || s.category,
+      icon: CATEGORY_ICONS[s.category] || "\uD83D\uDCE6",
+      count: s.count,
+      avg: s.avg,
+      median: s.median,
+      atLowest: s.atLowest,
+      withDrops: s.withDrops,
+      dropPercent: s.dropPercent,
+      avgAboveLow: isNaN(s.avgAboveLow) ? 0 : s.avgAboveLow,
+    }))
+    .sort((a, b) => b.count - a.count);
 
-      const atLowest = products.filter(
-        (p) => p.currentPrice <= p.minPrice && p.priceCount > 1
-      ).length;
-      const withDrops = products.filter(
-        (p) => p.currentPrice < p.maxPrice && p.minPrice < p.maxPrice
-      ).length;
-      const dropPercent = products.length > 0 ? Math.round((withDrops / products.length) * 100) : 0;
-
-      const productsWithHistory = products.filter((p) => p.minPrice > 0 && p.priceCount > 1);
-      const avgAboveLow =
-        productsWithHistory.length > 0
-          ? productsWithHistory.reduce((sum, p) => {
-              return sum + ((p.currentPrice - p.minPrice) / p.minPrice) * 100;
-            }, 0) / productsWithHistory.length
-          : 0;
-
-      const icon = CATEGORY_ICONS[key] || "\uD83D\uDCE6";
-
-      return {
-        key, label, icon,
-        count: products.length, avg, median,
-        atLowest, withDrops, dropPercent,
-        avgAboveLow: isNaN(avgAboveLow) ? 0 : avgAboveLow,
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => (b as any).count - (a as any).count) as any[];
-
-  // Overall stats
-  const totalProducts = allProducts.length;
-  const allPrices = allProducts.map((p) => p.currentPrice);
-  const overallAvg = allPrices.reduce((a, b) => a + b, 0) / allPrices.length;
-  const totalAtLowest = allProducts.filter(
-    (p) => p.currentPrice <= p.minPrice && p.priceCount > 1
-  ).length;
-  const totalWithDrops = allProducts.filter(
-    (p) => p.currentPrice < p.maxPrice && p.minPrice < p.maxPrice
-  ).length;
-
-  const productsWithHistory = allProducts.filter((p) => p.minPrice > 0 && p.priceCount > 1);
-  const overallAboveLow =
-    productsWithHistory.length > 0
-      ? productsWithHistory.reduce((sum, p) => {
-          return sum + ((p.currentPrice - p.minPrice) / p.minPrice) * 100;
-        }, 0) / productsWithHistory.length
-      : 0;
+  // Overall stats — straight from the grand-total row.
+  const totalProducts = overallStat?.count ?? 0;
+  const overallAvg = overallStat?.avg ?? 0;
+  const totalAtLowest = overallStat?.atLowest ?? 0;
+  const totalWithDrops = overallStat?.withDrops ?? 0;
+  const overallAboveLow = overallStat && !isNaN(overallStat.avgAboveLow)
+    ? overallStat.avgAboveLow
+    : 0;
 
   // Build category chart data from the price index JSON
   // IMPORTANT: use pctChange from the JSON (fixed basket) instead of recalculating
@@ -249,7 +230,7 @@ export default async function TrendsPage() {
           {"As of " + month + " " + year + ", the average electronics price across all categories we track is " +
           formatPrice(overallAvg) + " CAD. Out of " + totalProducts.toLocaleString() + " products, " +
           totalAtLowest.toLocaleString() + " are currently sitting at the lowest price we\u2019ve ever recorded \u2014 " +
-          "that\u2019s " + Math.round((totalAtLowest / totalProducts) * 100) + "% of all tracked products."}
+          "that\u2019s " + (totalProducts > 0 ? Math.round((totalAtLowest / totalProducts) * 100) : 0) + "% of all tracked products."}
         </p>
         {overallAboveLow > 0 && (
           <p style={{ marginBottom: "1rem" }}>
@@ -282,7 +263,7 @@ export default async function TrendsPage() {
             </tr>
           </thead>
           <tbody>
-            {(categoryStats as any[]).map((cat) => (
+            {categoryStats.map((cat) => (
               <tr key={cat.key} style={{ borderBottom: "1px solid var(--border)" }}>
                 <td style={{ ...tdStyle, textAlign: "left" }}>
                   <Link
