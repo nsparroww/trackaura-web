@@ -676,64 +676,71 @@ function ProductCard({
           </div>
         </div>
 
-        <div className="mt-auto">
-          <div className="flex items-baseline justify-between gap-2">
-            <span
-              className="text-lg font-semibold tabular-nums"
-              style={{
-                color: product.inStock ? C.accent : C.textDim,
-                fontFamily: FONT_DISPLAY,
-                textDecoration: product.inStock ? 'none' : 'line-through',
-              }}
-            >
-              {product.bestPrice != null ? fmtPrice(product.bestPrice) : '-'}
-            </span>
-            {product.allTimeLow != null &&
-              product.bestPrice != null &&
-              product.bestPrice > product.allTimeLow && (
-                <span
-                  className="text-[10px] tabular-nums"
-                  style={{ color: C.textDim, fontFamily: FONT_DISPLAY }}
-                >
-                  ATL {fmtPrice(product.allTimeLow)}
-                </span>
-              )}
-          </div>
-
-          <div className="mt-1 flex items-center justify-between">
-            <div
-              className="flex items-center gap-1.5 text-[10px]"
-              style={{ color: C.textDim }}
-            >
-              {retailer ? (
-                <>
+        {/* Price + retailer line. Suppressed when a row carries neither a
+            price nor a retailer - that's the browse-tier case (e.g. a
+            cpu_microarch landing card), where rendering a strikethrough
+            "$-" / "No retailer" reads as broken data. Such a card becomes
+            a clean image + name browse tile; price lives one tier down. */}
+        {(product.bestPrice != null || product.retailerCount > 0) && (
+          <div className="mt-auto">
+            <div className="flex items-baseline justify-between gap-2">
+              <span
+                className="text-lg font-semibold tabular-nums"
+                style={{
+                  color: product.inStock ? C.accent : C.textDim,
+                  fontFamily: FONT_DISPLAY,
+                  textDecoration: product.inStock ? 'none' : 'line-through',
+                }}
+              >
+                {product.bestPrice != null ? fmtPrice(product.bestPrice) : '-'}
+              </span>
+              {product.allTimeLow != null &&
+                product.bestPrice != null &&
+                product.bestPrice > product.allTimeLow && (
                   <span
-                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-[8px] font-semibold"
-                    style={{
-                      background: retailer.color,
-                      color: '#06090f',
-                      fontFamily: FONT_DISPLAY,
-                    }}
+                    className="text-[10px] tabular-nums"
+                    style={{ color: C.textDim, fontFamily: FONT_DISPLAY }}
                   >
-                    {retailer.short}
+                    ATL {fmtPrice(product.allTimeLow)}
                   </span>
-                  <span className="truncate">{retailer.name}</span>
-                  {product.retailerCount > 1 && (
-                    <span style={{ color: C.border }}>
-                      +{product.retailerCount - 1}
-                    </span>
-                  )}
-                </>
-              ) : (
-                <span style={{ color: C.border }}>No retailer</span>
-              )}
+                )}
             </div>
-            <ArrowRight
-              className="h-3 w-3 transition-colors group-hover:opacity-80"
-              style={{ color: C.textDim }}
-            />
+
+            <div className="mt-1 flex items-center justify-between">
+              <div
+                className="flex items-center gap-1.5 text-[10px]"
+                style={{ color: C.textDim }}
+              >
+                {retailer ? (
+                  <>
+                    <span
+                      className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-[8px] font-semibold"
+                      style={{
+                        background: retailer.color,
+                        color: '#06090f',
+                        fontFamily: FONT_DISPLAY,
+                      }}
+                    >
+                      {retailer.short}
+                    </span>
+                    <span className="truncate">{retailer.name}</span>
+                    {product.retailerCount > 1 && (
+                      <span style={{ color: C.border }}>
+                        +{product.retailerCount - 1}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span style={{ color: C.border }}>No retailer</span>
+                )}
+              </div>
+              <ArrowRight
+                className="h-3 w-3 transition-colors group-hover:opacity-80"
+                style={{ color: C.textDim }}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </Link>
   );

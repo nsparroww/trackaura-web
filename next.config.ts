@@ -14,14 +14,21 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "c2.neweggimages.com" },
       { protocol: "https", hostname: "images10.newegg.com" },
       { protocol: "https", hostname: "images11.newegg.com" },
-      // Vuugo (Cloudfront — subdomain may rotate, so wildcard)
+      // Vuugo (Cloudfront - subdomain may rotate, so wildcard)
       { protocol: "https", hostname: "**.cloudfront.net" },
       { protocol: "https", hostname: "www.vuugo.com" },
       { protocol: "https", hostname: "vuugo.com" },
-      // TechPowerUp — chip imagery via dbgpu (canonical_entities.image_primary_url)
-      // Path-prefix locked so only the gpu-specs image folder is reachable through
-      // our optimizer. EntityPage uses unoptimized=true today since these are
-      // already small (~30KB JPEGs); the allowlist still applies as a safety net.
+      // Supabase Storage - re-hosted GPU chip imagery (gpu-images bucket).
+      // canonical_entities.image_primary_url now points here, not at
+      // TechPowerUp. Path-prefix locked to the public storage objects.
+      {
+        protocol: "https",
+        hostname: "scsinqiyoxutvkopahbb.supabase.co",
+        pathname: "/storage/v1/object/public/**",
+      },
+      // TechPowerUp - retained for any not-yet-migrated image_primary_url
+      // rows. Path-prefix locked so only the gpu-specs image folder is
+      // reachable through our optimizer.
       {
         protocol: "https",
         hostname: "www.techpowerup.com",
@@ -29,6 +36,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+
   async redirects() {
     return [
       // New canonical URL shapes. The old /category/:slug and /product/:slug
@@ -39,8 +47,7 @@ const nextConfig: NextConfig = {
         destination: "/c/:slug",
         permanent: true,
       },
-
-      // Old /products?category=X → new /c/X (updated from /category/X)
+      // Old /products?category=X -> new /c/X (updated from /category/X)
       ...[
         "gpus", "cpus", "ssds", "ram", "monitors", "keyboards", "mice",
         "laptops", "motherboards", "power-supplies", "cases", "coolers",
@@ -54,8 +61,7 @@ const nextConfig: NextConfig = {
         destination: `/c/${cat}`,
         permanent: true,
       })),
-
-      // /changes → homepage
+      // /changes -> homepage
       {
         source: "/changes",
         destination: "/",

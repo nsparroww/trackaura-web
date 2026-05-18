@@ -108,6 +108,13 @@ export type EntityTypeConfig = {
       must themselves resolve via either exact-match or brand-prefix
       fallback. */
   shortSlugAliases?: Readonly<Record<string, string>>;
+  /** When true, this entity type — shown as a child in its parent's grid
+      (EntityChildren) — falls back to the parent's image when it has no
+      own image_primary_url. Set for entity types whose siblings share the
+      parent's appearance (CPUs: one physical package per microarch). Left
+      unset for visually-distinct children (GPU boards differ AIB-to-AIB,
+      so they must not borrow the chip's image). */
+  gridImageInheritsParent?: boolean;
   /** Regex-driven rewrites for marketing-form to canonical-form lookups.
       Tried after exact-match + alias, before brand-prefix prepend. First
       rewrite whose pattern matches AND whose rewritten slug hits a DB row
@@ -160,6 +167,10 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     parentEntityType: 'cpu_microarch',
     category: 'cpus',
     cleanSlugBrandPrefixes: ['intel-', 'amd-'],
+    /* CPUs under one microarchitecture are the same physical package —
+       the microarch image is the honest hero image. Drives the
+       parent-image fallback in entity.ts fetchChildren. */
+    gridImageInheritsParent: true,
     slugRewrites: [
       // (a) Core i-series. Intel markets as "Intel Core i7-8700K"
       // everywhere (Wikipedia, retailer pages, natural Googling). DB
