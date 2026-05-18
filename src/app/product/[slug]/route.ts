@@ -84,8 +84,8 @@
  *     (L_entities). Entity routes have their own slug-resolution layer that
  *     canonicalises clean-form vs doubled-prefix downstream.
  *   - Known entity_types without dedicated routes today (monitor,
- *     cpu_microarch, gpu_microarch) fall through to 410 rather than 301
- *     to a 404. Add to entityTypeToRoutePrefix() when those routes ship.
+ *     gpu_microarch) fall through to 410 rather than 301 to a 404. Add
+ *     to entityTypeToRoutePrefix() when those routes ship.
  *   - force-dynamic: per-request DB lookup, never prerendered.
  *   - 301 and 410 responses both carry a 1-day Cache-Control (max-age +
  *     s-maxage). Without it the 301s went out max-age=0, so every crawler
@@ -151,11 +151,11 @@ async function canonicalHasListings(
 
 /**
  * Map an `entity_type` to its frontend route prefix. Routes confirmed
- * present per WORKFLOW.md frontend file tree: `/chip` (gpu_chip),
- * `/board` (gpus), `/cpu` (cpu). Other entity_types (monitor,
- * cpu_microarch, gpu_microarch) have catalog data but no dedicated
- * route file as of 2026-05-15 -- return null and fall through to 410.
- * Extend this switch when new entity routes ship.
+ * present in the build route table: `/chip` (gpu_chip), `/board` (gpus),
+ * `/cpu` (cpu), `/cpu-microarch` (cpu_microarch). Other entity_types
+ * (monitor, gpu_microarch) have catalog data but no dedicated route file
+ * as of 2026-05-18 -- return null and fall through to 410. Extend this
+ * switch when new entity routes ship.
  */
 function entityTypeToRoutePrefix(entityType: string): string | null {
   switch (entityType) {
@@ -165,6 +165,8 @@ function entityTypeToRoutePrefix(entityType: string): string | null {
       return "/board";
     case "cpu":
       return "/cpu";
+    case "cpu_microarch":
+      return "/cpu-microarch";
     default:
       return null;
   }
@@ -295,8 +297,8 @@ export async function GET(
      The entity page existing is enough.
 
      Known entity_types without dedicated routes today (monitor,
-     cpu_microarch, gpu_microarch) fall through to 410 via the null
-     return from entityTypeToRoutePrefix(). */
+     gpu_microarch) fall through to 410 via the null return from
+     entityTypeToRoutePrefix(). */
   {
     const idx = decodedSlug.indexOf("-");
     const doubledSlug =
