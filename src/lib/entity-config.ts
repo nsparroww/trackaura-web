@@ -10,8 +10,7 @@
 
    Conventions (Architecture Bible Section 3, Section 7):
      - entity_type rows in canonical_entities are: 'gpu_chip', 'gpus',
-       'cpu', 'cpu_microarch' today. ('monitor' exists in DB but no
-       frontend route yet -- Active queue Item 3.)
+       'cpu', 'cpu_microarch', 'monitor' today.
      - Tree traversal via parent_entity_id (bottom-up).
      - childEntityType = null  -> leaf (own listings, no children section)
      - childEntityType = 'foo' -> branch (children of that type, no own listings)
@@ -66,15 +65,28 @@
        All 40 microarch slugs in DB are brand-prefixed; without this,
        bare-form queries like /cpu-microarch/coffee-lake 404'd.
        Canonical URLs: /cpu-microarch/coffee-lake, /cpu-microarch/zen-4.
+
+   2026-05-19 amendment (monitor vertical wiring; Active queue Item 7):
+     - 'monitor' entity_type registered as a 1-level leaf vertical
+       (no parent, no children) -- Home / Monitors / Item.
+     - Catalog fed by the LG ingest (462 rows, 2026-05-11) and the ASUS
+       ingest (296 rows, 2026-05-18). All monitor slugs in DB are
+       brand-prefixed (lg-*, asus-*), so cleanSlugBrandPrefixes is
+       ['lg-', 'asus-']; canonical URLs are brand-stripped
+       (/monitor/27gl850-b, /monitor/va27dqsby) and legacy brand-prefixed
+       URLs 308 to that form -- same pattern as GPU chips.
+     - 'monitors' CategorySlug + CATEGORIES entry added. The /c/monitors
+       alias in category-entity-map.ts ships separately, after the
+       /monitor/[slug] route verifies (Bible Protocol #35).
    ------------------------------------------------------------------------- */
 
 import { BRAND_PREFIXES as GPU_CHIP_BRAND_PREFIXES } from './chip-slug-helpers';
 
 /** All entity_type values currently registered. Expand as verticals come online. */
-export type EntityType = 'gpu_chip' | 'gpus' | 'cpu' | 'cpu_microarch';
+export type EntityType = 'gpu_chip' | 'gpus' | 'cpu' | 'cpu_microarch' | 'monitor';
 
 /** All category slugs (drive /c/[slug] and category breadcrumbs). */
-export type CategorySlug = 'gpus' | 'cpus';
+export type CategorySlug = 'gpus' | 'cpus' | 'monitors';
 
 /** Regex-driven slug-form rewrite. Use for marketing-form to canonical-form
     equivalences that don't fit prefix-prepend semantics. Pattern is matched
@@ -108,8 +120,8 @@ export type EntityTypeConfig = {
       must themselves resolve via either exact-match or brand-prefix
       fallback. */
   shortSlugAliases?: Readonly<Record<string, string>>;
-  /** When true, this entity type — shown as a child in its parent's grid
-      (EntityChildren) — falls back to the parent's image when it has no
+  /** When true, this entity type â€” shown as a child in its parent's grid
+      (EntityChildren) â€” falls back to the parent's image when it has no
       own image_primary_url. Set for entity types whose siblings share the
       parent's appearance (CPUs: one physical package per microarch). Left
       unset for visually-distinct children (GPU boards differ AIB-to-AIB,
@@ -167,7 +179,7 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     parentEntityType: 'cpu_microarch',
     category: 'cpus',
     cleanSlugBrandPrefixes: ['intel-', 'amd-'],
-    /* CPUs under one microarchitecture are the same physical package —
+    /* CPUs under one microarchitecture are the same physical package â€”
        the microarch image is the honest hero image. Drives the
        parent-image fallback in entity.ts fetchChildren. */
     gridImageInheritsParent: true,
@@ -188,6 +200,19 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
       // finalClean strips brand prefix for /cpu/core-ultra-265k redirect.
       { pattern: /^core-ultra-[3579]-/, replacement: 'intel-core-ultra-' },
     ],
+  },
+  monitor: {
+    routePrefix: '/monitor',
+    label: 'Monitor',
+    pluralLabel: 'Monitors',
+    childEntityType: null,
+    parentEntityType: null,
+    category: 'monitors',
+    // All monitor slugs in DB are brand-prefixed (lg-*, asus-*).
+    // Canonical URL is brand-stripped: /monitor/27gl850-b,
+    // /monitor/va27dqsby. Legacy /monitor/lg-* and /monitor/asus-*
+    // 308 to that form -- mirrors the GPU-chip pattern.
+    cleanSlugBrandPrefixes: ['lg-', 'asus-'],
   },
 };
 
@@ -213,6 +238,12 @@ export const CATEGORIES: Record<CategorySlug, CategoryConfig> = {
     topEntityType: 'cpu_microarch',
     provenance:
       'Catalog data from Intel ARK and AMD spec pages. Microarchitecture context from Wikipedia (CC BY-SA 4.0). Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
+  },
+  monitors: {
+    label: 'Monitors',
+    topEntityType: 'monitor',
+    provenance:
+      'Catalog data from LG and ASUS manufacturer specification pages. Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
   },
 };
 
