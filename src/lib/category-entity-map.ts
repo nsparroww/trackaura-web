@@ -105,10 +105,18 @@ export const CATEGORY_ENTITY_MAP: Record<string, CategoryEntityMapEntry> = {
     browseRoutePrefix: '/cpu-microarch',
   },
 
+  // Monitor: 1-level leaf vertical, no parent tier -- no browseEntityType
+  // override (the landing lists the monitor leaves directly).
+  'monitors': {
+    entityType: 'monitor',
+    routePrefix: '/monitor',
+  },
+  'displays': {
+    entityType: 'monitor',
+    routePrefix: '/monitor',
+  },
   // Future entries go here as verticals migrate. Until then, /c/<slug>
   // for these falls through to the canonical_products v0 read path.
-  //   'monitors':     { entityType: 'monitor', routePrefix: '/monitor' },  // catalog fed 2026-05-11; route file pending
-  //   'displays':     { entityType: 'monitor', routePrefix: '/monitor' },  // catalog fed 2026-05-11; route file pending
   //   'motherboards': { entityType: 'mobo',    routePrefix: '/mobo' },
 };
 
