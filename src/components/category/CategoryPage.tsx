@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, Tag, Check, Flame } from 'lucide-react';
 import { RETAILERS } from '@/lib/retailers';
@@ -51,15 +52,42 @@ export default function CategoryPage({
    */
   entityRoutePrefix?: string;
 }) {
-  const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
-  const [inStockOnly, setInStockOnly] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>('deals');
-  const [page, setPage] = useState(1);
+  // Browse state lives in URL search params so back-button,
+  // refresh, and sharing all preserve position. Filter changes
+  // use router.replace (no history pollution); page changes use
+  // router.push (back-button undoes a page click). Defaults
+  // (p=1, stock=off, sort=deals, no brand filter) are encoded
+  // by absence -- canonical URLs stay clean.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  // Reset to page 1 whenever filters or sort change.
-  useEffect(() => {
-    setPage(1);
-  }, [selectedBrands, inStockOnly, sortKey]);
+  const page = Math.max(
+    1,
+    parseInt(searchParams.get('p') ?? '1', 10) || 1,
+  );
+  const inStockOnly = searchParams.get('stock') === '1';
+  const sortKey = (searchParams.get('sort') as SortKey) ?? 'deals';
+  const selectedBrands = useMemo(
+    () => new Set(searchParams.getAll('brand')),
+    [searchParams],
+  );
+
+  const updateUrl = useCallback(
+    (
+      mutate: (p: URLSearchParams) => void,
+      opts: { resetPage?: boolean; push?: boolean } = {},
+    ) => {
+      const params = new URLSearchParams(searchParams.toString());
+      mutate(params);
+      if (opts.resetPage) params.delete('p');
+      const qs = params.toString();
+      const url = qs ? `${pathname}?${qs}` : pathname;
+      if (opts.push) router.push(url, { scroll: false });
+      else router.replace(url, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
   const filteredProducts = useMemo(() => {
     let list = category.products;
@@ -174,19 +202,29 @@ export default function CategoryPage({
 
   const goToPage = (n: number) => {
     const target = Math.max(1, Math.min(totalPages, n));
-    setPage(target);
+    updateUrl(
+      (p) => {
+        if (target === 1) p.delete('p');
+        else p.set('p', String(target));
+      },
+      { push: true },
+    );
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
   const toggleBrand = (name: string) => {
-    setSelectedBrands((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
+    updateUrl(
+      (p) => {
+        const current = new Set(p.getAll('brand'));
+        if (current.has(name)) current.delete(name);
+        else current.add(name);
+        p.delete('brand');
+        current.forEach((b) => p.append('brand', b));
+      },
+      { resetPage: true },
+    );
   };
 
   const firstOnPage = (safePage - 1) * PAGE_SIZE + 1;
@@ -291,7 +329,9 @@ export default function CategoryPage({
               <span>Brand</span>
               {selectedBrands.size > 0 && (
                 <button
-                  onClick={() => setSelectedBrands(new Set())}
+                  onClick={() =>
+                    updateUrl((p) => p.delete('brand'), { resetPage: true })
+                  }
                   className="transition-opacity hover:opacity-80"
                   style={{
                     color: C.accent,
@@ -349,7 +389,15 @@ export default function CategoryPage({
               <input
                 type="checkbox"
                 checked={inStockOnly}
-                onChange={(e) => setInStockOnly(e.target.checked)}
+                onChange={(e) =>
+                  updateUrl(
+                    (p) => {
+                      if (e.target.checked) p.set('stock', '1');
+                      else p.delete('stock');
+                    },
+                    { resetPage: true },
+                  )
+                }
                 className="h-3.5 w-3.5"
                 style={{ accentColor: 'var(--accent)' }}
               />
@@ -375,7 +423,16 @@ export default function CategoryPage({
             <select
               id="sort-select"
               value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              onChange={(e) => {
+                const v = e.target.value;
+                updateUrl(
+                  (p) => {
+                    if (v === 'deals') p.delete('sort');
+                    else p.set('sort', v);
+                  },
+                  { resetPage: true },
+                );
+              }}
               className="rounded-md px-2 py-1 text-[11px] outline-none transition-colors"
               style={{
                 background: C.bgSecondary,
@@ -404,10 +461,15 @@ export default function CategoryPage({
                 No products match these filters.
               </p>
               <button
-                onClick={() => {
-                  setSelectedBrands(new Set());
-                  setInStockOnly(false);
-                }}
+                onClick={() =>
+                  updateUrl(
+                    (p) => {
+                      p.delete('brand');
+                      p.delete('stock');
+                    },
+                    { resetPage: true },
+                  )
+                }
                 className="mt-3 text-[11px] transition-opacity hover:opacity-80"
                 style={{ color: C.accent, fontFamily: FONT_DISPLAY }}
               >
