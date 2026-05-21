@@ -7,6 +7,7 @@ import {
 } from '@/lib/queries/category';
 import { getCategoryEntityViewModel } from '@/lib/queries/category-entity';
 import { getCategoryEntityConfig } from '@/lib/category-entity-map';
+import { Suspense } from 'react';
 
 type Params = { slug: string };
 
@@ -132,7 +133,9 @@ export default async function Page({
         // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
-      <CategoryPage category={cat} entityRoutePrefix={routePrefix} />
+      <Suspense fallback={null}>
+        <CategoryPage category={cat} entityRoutePrefix={routePrefix} />
+      </Suspense>
     </>
   );
 }
