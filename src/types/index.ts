@@ -128,6 +128,8 @@ export const CATEGORY_LABELS: Record<string, string> = {
   nas: "NAS",
   accessories: "Accessories",
   controllers: "Game Controllers",
+  "lego-sets": "LEGO Sets",
+  "lego-themes": "LEGO Themes",
   other: "Other",
 };
 

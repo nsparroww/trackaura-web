@@ -28,6 +28,7 @@ const ACRONYMS = new Set<string>([
   'GPU', 'CPU', 'RAM', 'SSD', 'HDD', 'PSU', 'NAS', 'PC', 'TV',
   'USB', 'HDMI', 'AIO', 'API', 'ARGB', 'RGB', 'ATX', 'NVME',
   'OLED', 'IPS', 'VA', 'TN', 'LCD', 'LED', 'UPS', 'DAC', 'AMP',
+  'LEGO',
 ]);
 
 function prettifyCategorySlug(slug: string): string {

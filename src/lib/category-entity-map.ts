@@ -115,6 +115,24 @@ export const CATEGORY_ENTITY_MAP: Record<string, CategoryEntityMapEntry> = {
     entityType: 'monitor',
     routePrefix: '/monitor',
   },
+
+  // LEGO sets (Phase 1, 2-level). Leaf = 'lego_set' - homepage counts
+  // 26,845 sets, featured shows priced sets. The /c/ landing browses
+  // 'lego_theme', the 494-theme index (mirrors CPU's microarch landing).
+  // Both Protocol #35 gates met 2026-05-19: lego_theme + lego_set rows
+  // exist; /set/[slug] and /theme/[slug] routes ship in this commit.
+  'lego-sets': {
+    entityType: 'lego_set',
+    routePrefix: '/set',
+    browseEntityType: 'lego_theme',
+    browseRoutePrefix: '/theme',
+  },
+  'lego-themes': {
+    entityType: 'lego_set',
+    routePrefix: '/set',
+    browseEntityType: 'lego_theme',
+    browseRoutePrefix: '/theme',
+  },
   // Future entries go here as verticals migrate. Until then, /c/<slug>
   // for these falls through to the canonical_products v0 read path.
   //   'motherboards': { entityType: 'mobo',    routePrefix: '/mobo' },

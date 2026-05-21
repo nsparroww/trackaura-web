@@ -83,10 +83,10 @@
 import { BRAND_PREFIXES as GPU_CHIP_BRAND_PREFIXES } from './chip-slug-helpers';
 
 /** All entity_type values currently registered. Expand as verticals come online. */
-export type EntityType = 'gpu_chip' | 'gpus' | 'cpu' | 'cpu_microarch' | 'monitor';
+export type EntityType = 'gpu_chip' | 'gpus' | 'cpu' | 'cpu_microarch' | 'monitor' | 'lego_set' | 'lego_theme';
 
 /** All category slugs (drive /c/[slug] and category breadcrumbs). */
-export type CategorySlug = 'gpus' | 'cpus' | 'monitors';
+export type CategorySlug = 'gpus' | 'cpus' | 'monitors' | 'lego-sets';
 
 /** Regex-driven slug-form rewrite. Use for marketing-form to canonical-form
     equivalences that don't fit prefix-prepend semantics. Pattern is matched
@@ -214,6 +214,36 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     // 308 to that form -- mirrors the GPU-chip pattern.
     cleanSlugBrandPrefixes: ['lg-', 'asus-'],
   },
+  /* 2026-05-19 amendment (Phase 1 LEGO collectibles vertical):
+     - 'lego_theme' = branch entity, parents 'lego_set' (and other
+       lego_themes via parent_entity_id self-reference). Three-level
+       tree shapes exist in the data (e.g., Star Wars > UCS >
+       Millennium Falcon); EntityPage breadcrumb walk handles depth
+       natively. cleanSlugBrandPrefixes empty -- theme slugs are
+       'theme-<id>-<name>' by construction; no brand prefix to strip.
+     - 'lego_set' = leaf. parentEntityType 'lego_theme'. No brand
+       prefix to strip (set slugs are '<name>-<set_num>' where set_num
+       is universal across all LEGO catalogs -- BrickLink, Brickset,
+       Rebrickable). gridImageInheritsParent NOT set -- every LEGO set
+       has its own hero image (100% coverage from Rebrickable). */
+  lego_theme: {
+    routePrefix: '/theme',
+    label: 'LEGO Theme',
+    pluralLabel: 'LEGO Themes',
+    childEntityType: 'lego_set',
+    parentEntityType: null, // can also point to another lego_theme via parent_entity_id (3-level tree)
+    category: 'lego-sets',
+    cleanSlugBrandPrefixes: [],
+  },
+  lego_set: {
+    routePrefix: '/set',
+    label: 'LEGO Set',
+    pluralLabel: 'LEGO Sets',
+    childEntityType: null,
+    parentEntityType: 'lego_theme',
+    category: 'lego-sets',
+    cleanSlugBrandPrefixes: [],
+  },
 };
 
 export type CategoryConfig = {
@@ -244,6 +274,12 @@ export const CATEGORIES: Record<CategorySlug, CategoryConfig> = {
     topEntityType: 'monitor',
     provenance:
       'Catalog data from LG and ASUS manufacturer specification pages. Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
+  },
+  'lego-sets': {
+    label: 'LEGO Sets',
+    topEntityType: 'lego_theme',
+    provenance:
+      'Catalog data from Rebrickable (rebrickable.com, freely licensed for any purpose, refreshed daily). Prices observed from Canadian retailers including LEGO.com Canada and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
   },
 };
 

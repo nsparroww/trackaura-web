@@ -7,6 +7,7 @@ import {
   CircuitBoard,
   Cpu,
   Mouse,
+  Blocks,
   Box,
   HardDrive,
   Zap,
@@ -127,6 +128,8 @@ const CATEGORY_LUCIDE: Record<string, React.ComponentType<{ size?: number; strok
   webcams: Webcam,
   tvs: Tv,
   televisions: Tv,
+  'lego-sets': Blocks,
+  'lego-themes': Blocks,
 };
 
 function CategoryIcon({ categoryKey, size = 22 }: { categoryKey: string; size?: number }) {

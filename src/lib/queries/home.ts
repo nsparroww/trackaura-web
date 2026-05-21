@@ -228,7 +228,7 @@ export async function getHomeCategories(
   }
   if (!rpcResult.data) return [];
 
-  return (rpcResult.data as Array<{ category: string; cnt: number }>).map((row) => {
+  const fromV0 = (rpcResult.data as Array<{ category: string; cnt: number }>).map((row) => {
     const v0Count = Number(row.cnt);
     // If this slug is in CATEGORY_ENTITY_MAP, override the v0 count with
     // the canonical_entities count for its entity_type. Otherwise keep
@@ -244,6 +244,67 @@ export async function getHomeCategories(
       atLowest: 0,
     };
   });
+
+  // Phase 1 amendment (2026-05-19): the v0 RPC only returns slugs that
+  // exist in canonical_products. Verticals migrated to canonical_entities
+  // with no v0 rows (LEGO sets, Phase 1 collectibles) never appear in
+  // the result. Synthesize tile entries for any CATEGORY_ENTITY_MAP slug
+  // not already in the result, using the entity-type counts already
+  // fetched above. One representative slug per entity_type (the first
+  // map entry that targets it); aliases skip.
+  const seenSlugs = new Set(fromV0.map((c) => c.key));
+  const seenEntityTypes = new Set<string>();
+  const fromMigrated: HomeCategory[] = [];
+  for (const [slug, cfg] of Object.entries(CATEGORY_ENTITY_MAP)) {
+    if (seenSlugs.has(slug)) continue;
+    if (seenEntityTypes.has(cfg.entityType)) continue;
+    const count = entityTypeCounts.get(cfg.entityType);
+    if (count == null || count === 0) continue;
+    seenEntityTypes.add(cfg.entityType);
+    fromMigrated.push({
+      key: slug,
+      label: prettify(slug),
+      count,
+      atLowest: 0,
+    });
+  }
+
+  // Dedup by entity_type: CATEGORY_ENTITY_MAP intentionally aliases
+  // multiple URL slugs to the same vertical (e.g. graphics-cards + gpus +
+  // video-cards all -> gpu_chip). The v0 RPC returns each alias slug as a
+  // separate row, which renders as duplicate tiles. Keep the first slug
+  // per entity_type seen in CATEGORY_ENTITY_MAP insertion order (the
+  // natural-language form: 'graphics-cards' not 'gpus', 'cpus' not
+  // 'processors', 'monitors' not 'displays', 'lego-sets' not 'lego-themes').
+  // Non-migrated v0 slugs (mice, keyboards, etc.) pass through unchanged
+  // since they aren't in CATEGORY_ENTITY_MAP.
+  const slugPriority = new Map<string, number>();
+  let i = 0;
+  for (const [slug] of Object.entries(CATEGORY_ENTITY_MAP)) {
+    slugPriority.set(slug, i++);
+  }
+  const winningSlugByEntityType = new Map<string, string>();
+  for (const [slug, cfg] of Object.entries(CATEGORY_ENTITY_MAP)) {
+    if (!winningSlugByEntityType.has(cfg.entityType)) {
+      winningSlugByEntityType.set(cfg.entityType, slug);
+    }
+  }
+  const merged = [...fromV0, ...fromMigrated];
+  const dedupSeen = new Set<string>();
+  const deduped: HomeCategory[] = [];
+  for (const c of merged) {
+    const mapEntry = CATEGORY_ENTITY_MAP[c.key];
+    if (!mapEntry) {
+      // Non-migrated v0 slug -- always pass through.
+      deduped.push(c);
+      continue;
+    }
+    if (dedupSeen.has(mapEntry.entityType)) continue;
+    if (winningSlugByEntityType.get(mapEntry.entityType) !== c.key) continue;
+    dedupSeen.add(mapEntry.entityType);
+    deduped.push(c);
+  }
+  return deduped;
 }
 
 /* ----------------------------------------------------------------------
