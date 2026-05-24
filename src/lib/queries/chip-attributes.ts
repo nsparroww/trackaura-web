@@ -204,6 +204,7 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   vesa_displayhdr:           { label: 'VESA DisplayHDR',        group: 'Image Quality' },
   flicker_safe:              { label: 'Flicker-Free',           group: 'Image Quality' },
   low_blue_light:            { label: 'Low Blue Light',         group: 'Image Quality' },
+  dynamic_contrast_ratio:    { label: 'Dynamic Contrast Ratio', group: 'Image Quality' },
 
   // --- Features ---
   vrr:                   { label: 'Variable Refresh Rate', group: 'Features' },
@@ -226,6 +227,14 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   embedded_colorimeter:  { label: 'Embedded Colorimeter',  group: 'Features' },
   ergonomic:             { label: 'Ergonomic Design',      group: 'Features' },
   ai_assistant:          { label: 'AI Assistant',          group: 'Features' },
+  ddc_ci:                { label: 'DDC/CI',                group: 'Features' },
+  plug_play:             { label: 'Plug & Play',           group: 'Features' },
+  f_engine:              { label: 'F-Engine',              group: 'Features' },
+  srgb_mode:             { label: 'sRGB Mode',             group: 'Features' },
+  overclocking:          { label: 'Overclocking',          group: 'Features' },
+  key_lock:              { label: 'Key Lock',              group: 'Features' },
+  osd_lock:              { label: 'OSD Lock',              group: 'Features' },
+  game_mode:             { label: 'Game Mode',             group: 'Features' },
 
   // --- Connectivity ---
   hdmi_ports:            { label: 'HDMI',                 group: 'Connectivity' },
@@ -247,6 +256,10 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   stand_height_adjustment:  { label: 'Height Adjustment', group: 'Stand' },
   vesa_mount_pattern:       { label: 'VESA Mount',        group: 'Stand' },
   kensington_lock:          { label: 'Kensington Lock',   group: 'Stand' },
+  tilt_supported:           { label: 'Tilt',              group: 'Stand' },
+  tilt_angle:               { label: 'Tilt Angle',        group: 'Stand' },
+  pivot_supported:          { label: 'Pivot',             group: 'Stand' },
+  base_detachable:          { label: 'Detachable Base',   group: 'Stand' },
 
   // --- Power (monitor keys share the existing Power group) ---
   power_consumption_typ_w:   { label: 'Power (Typical)', group: 'Power' },
@@ -254,6 +267,7 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   power_consumption_sleep_w: { label: 'Power (Sleep)',   group: 'Power' },
   power_consumption_off_w:   { label: 'Power (Off)',     group: 'Power' },
   ac_input:                  { label: 'AC Input',        group: 'Power' },
+  dc_output:                 { label: 'DC Output',       group: 'Power' },
 
   // --- Physical ---
   dimensions_with_stand:     { label: 'Dimensions (with stand)',    group: 'Physical' },
@@ -262,6 +276,13 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   weight_with_stand:         { label: 'Weight (with stand)',        group: 'Physical' },
   weight_without_stand:      { label: 'Weight (without stand)',     group: 'Physical' },
   weight_shipping:           { label: 'Weight (shipping)',          group: 'Physical' },
+  front_color:               { label: 'Front Color',                group: 'Physical' },
+  stand_color:               { label: 'Stand Color',                group: 'Physical' },
+  back_cover_color:          { label: 'Back Cover Color',           group: 'Physical' },
+
+  // --- In the Box (LG v2) ---
+  accessory_manual:          { label: 'Manual Included',            group: 'In the Box' },
+  thunderbolt_cable:         { label: 'Thunderbolt Cable',          group: 'In the Box' },
 
   // --- Identity (release_year shares the existing Identity group) ---
   release_year:          { label: 'Release Year',        group: 'Identity' },
@@ -288,6 +309,8 @@ export const GROUP_ORDER = [
   'Power',
   // Monitor physical group
   'Physical',
+  // Monitor accessories
+  'In the Box',
   'Manufacturing',
 ];
 
@@ -378,6 +401,7 @@ const ATTR_ORDER: Record<string, number> = {
   vesa_displayhdr: 13,
   flicker_safe: 14,
   low_blue_light: 15,
+  dynamic_contrast_ratio: 16,
   // Features
   vrr: 1,
   amd_freesync: 2,
@@ -399,6 +423,14 @@ const ATTR_ORDER: Record<string, number> = {
   embedded_colorimeter: 18,
   ergonomic: 19,
   ai_assistant: 20,
+  ddc_ci: 21,
+  plug_play: 22,
+  f_engine: 23,
+  srgb_mode: 24,
+  overclocking: 25,
+  key_lock: 26,
+  osd_lock: 27,
+  game_mode: 28,
   // Connectivity
   hdmi_ports: 1,
   displayport_ports: 2,
@@ -417,12 +449,17 @@ const ATTR_ORDER: Record<string, number> = {
   stand_height_adjustment: 4,
   vesa_mount_pattern: 5,
   kensington_lock: 6,
+  tilt_supported: 7,
+  tilt_angle: 8,
+  pivot_supported: 9,
+  base_detachable: 10,
   // Power (monitor) -- offset clear of the CPU Power keys (10, 11)
   power_consumption_typ_w: 20,
   power_consumption_max_w: 21,
   power_consumption_sleep_w: 22,
   power_consumption_off_w: 23,
   ac_input: 24,
+  dc_output: 25,
   // Physical
   dimensions_with_stand: 1,
   dimensions_without_stand: 2,
@@ -430,6 +467,12 @@ const ATTR_ORDER: Record<string, number> = {
   weight_with_stand: 4,
   weight_without_stand: 5,
   weight_shipping: 6,
+  front_color: 7,
+  stand_color: 8,
+  back_cover_color: 9,
+  // In the Box
+  accessory_manual: 1,
+  thunderbolt_cable: 2,
   // Identity (monitor) -- offset clear of the CPU Identity keys (1-6)
   release_year: 20,
 };
