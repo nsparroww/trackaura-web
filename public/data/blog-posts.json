@@ -38,7 +38,8 @@
       "Most price comparison sites publish confidence the source data doesn't support. They have to — their business model is the click. A page that says \"we have one retailer's price and we don't really know if it's a fair one\" doesn't drive conversions, doesn't display well on a comparison grid, doesn't make money on the existing model.",
       "We took a different path. No display ads, no sponsored placements, no paid ranking — not because we hold a moral position, but because a canonical reference can't stay canonical any other way. Wikipedia, Wikidata, OpenStreetMap, MusicBrainz all hold that line. The trust that makes them the citation source erodes the moment they accept the cheaper revenue model. We think the same is true for a canonical registry of physical things — and not just for human readers. For grounded AI systems, source independence is becoming an explicit procurement criterion.",
       "That choice forces a harder thing to build. The honest dashboard is a slower dashboard. The hard confidence threshold is a smaller \"covered\" number. The published 0% is the cost of admission to being something worth citing in five years.",
-      "We think it's the only number worth keeping."
+      "We think it's the only number worth keeping.",
+      "More on the catalog and how to access it: [/for-llms](/for-llms)."
     ]
   },
   {
