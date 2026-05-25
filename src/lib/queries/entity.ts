@@ -288,6 +288,11 @@ export type EntityViewModel = {
   /** Successor on this entity's product line. Same null semantics as
       predecessor (chain tail, or lineage not yet derived). */
   successor: LineageItem | null;
+  /** Variant_of edges - sibling configurations under the same
+      generation / architecture. e.g. an RTX 5070 Ti's 16GB and
+      SUPER editions, or all the Ryzen 5 8000-series desktop SKUs.
+      Empty array when no edges exist; ordered alphabetically. */
+  variants: LineageItem[];
 
   lastRefreshed: string;
 };
@@ -481,28 +486,43 @@ async function fetchAncestorChain(
 async function fetchLineage(
   supabase: SupabaseClient,
   entityId: string,
-): Promise<{ predecessor: LineageItem | null; successor: LineageItem | null }> {
+): Promise<{
+  predecessor: LineageItem | null;
+  successor: LineageItem | null;
+  variants: LineageItem[];
+}> {
   const { data: edges, error: edgesErr } = await supabase
     .from('entity_relationships')
     .select('to_entity_id, relationship')
     .eq('from_entity_id', entityId)
-    .in('relationship', ['predecessor', 'successor']);
+    .in('relationship', ['predecessor', 'successor', 'variant_of']);
 
   if (edgesErr) {
     console.error('[entity] lineage edge fetch failed:', edgesErr);
-    return { predecessor: null, successor: null };
+    return { predecessor: null, successor: null, variants: [] };
   }
   const rows = edges ?? [];
-  if (rows.length === 0) return { predecessor: null, successor: null };
-
-  /* Schema permits N edges per (from, relationship); v0 ingest writes
-     one. If two arrive in v1 (forked chains), last row wins — stable
-     enough as a placeholder until variant_of lands. */
-  const byRel = new Map<string, string>();
-  for (const e of rows) {
-    byRel.set(e.relationship, String(e.to_entity_id));
+  if (rows.length === 0) {
+    return { predecessor: null, successor: null, variants: [] };
   }
-  const targetIds = Array.from(new Set(byRel.values()));
+
+  /* predecessor / successor are singleton edges (last-write-wins on
+     duplicates); variant_of can be many per entity. Collect them in
+     parallel structures: a Map for the singletons, a deduped list
+     for the variants. */
+  const byRel = new Map<string, string>();
+  const variantTargetIds: string[] = [];
+  for (const e of rows) {
+    if (e.relationship === 'variant_of') {
+      const tid = String(e.to_entity_id);
+      if (!variantTargetIds.includes(tid)) variantTargetIds.push(tid);
+    } else {
+      byRel.set(e.relationship, String(e.to_entity_id));
+    }
+  }
+  const targetIds = Array.from(
+    new Set([...byRel.values(), ...variantTargetIds]),
+  );
 
   const { data: targets, error: tgtErr } = await supabase
     .from('canonical_entities')
@@ -513,7 +533,7 @@ async function fetchLineage(
 
   if (tgtErr) {
     console.error('[entity] lineage target fetch failed:', tgtErr);
-    return { predecessor: null, successor: null };
+    return { predecessor: null, successor: null, variants: [] };
   }
 
   type TargetRow = {
@@ -530,11 +550,10 @@ async function fetchLineage(
     targetById.set(String(t.id), t);
   }
 
-  const toLineageItem = (
-    relationship: 'predecessor' | 'successor',
-  ): LineageItem | null => {
-    const tgtId = byRel.get(relationship);
-    if (!tgtId) return null;
+  /* Resolve a target id to a LineageItem, skipping unregistered
+     entity_types so the page can't crash when a relationship target
+     is from a vertical whose frontend route hasn't shipped yet. */
+  const toLineageItem = (tgtId: string): LineageItem | null => {
     const t = targetById.get(tgtId);
     if (!t) return null;
     if (!isRegisteredEntityType(t.entity_type)) {
@@ -554,9 +573,17 @@ async function fetchLineage(
     };
   };
 
+  const predTgt = byRel.get('predecessor');
+  const succTgt = byRel.get('successor');
+  const variants: LineageItem[] = variantTargetIds
+    .map((id) => toLineageItem(id))
+    .filter((x): x is LineageItem => x != null);
+  variants.sort((a, b) => a.name.localeCompare(b.name));
+
   return {
-    predecessor: toLineageItem('predecessor'),
-    successor: toLineageItem('successor'),
+    predecessor: predTgt ? toLineageItem(predTgt) : null,
+    successor: succTgt ? toLineageItem(succTgt) : null,
+    variants,
   };
 }
 
@@ -799,6 +826,7 @@ export async function getEntityViewModel(
     coverageTier,
     predecessor: lineage.predecessor,
     successor: lineage.successor,
+    variants: lineage.variants,
     lastRefreshed: new Date().toISOString(),
   };
 }

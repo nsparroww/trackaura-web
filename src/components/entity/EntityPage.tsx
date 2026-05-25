@@ -406,6 +406,7 @@ export default function EntityPage({ entity }: Props) {
       <EntityLineage
         predecessor={entity.predecessor}
         successor={entity.successor}
+        variants={entity.variants}
       />
 
       {/* Price history - moved above the listings / children block

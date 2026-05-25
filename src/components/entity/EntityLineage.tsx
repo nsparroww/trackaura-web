@@ -5,37 +5,46 @@ import type { LineageItem } from '@/lib/queries/entity';
 /* ---------------------------------------------------------------------
    EntityLineage
 
-   Predecessor and successor navigation cards. Renders only when at
-   least one of {predecessor, successor} is non-null; the component is
-   responsible for its own visibility (caller doesn't gate).
+   Lineage section: predecessor + successor row, optionally followed by
+   a Variants subsection. Renders only when at least one is non-empty;
+   the component is responsible for its own visibility (caller doesn't
+   gate).
 
    Layout:
-     - Two-up grid on sm+ screens, stacked on mobile.
-     - Each card: small product image, "Predecessor" / "Successor"
-       label, name, release year.
-     - Whichever side is null renders an empty placeholder card so the
-       grid doesn't collapse asymmetrically. Empty card has subdued
-       copy ("None on record" / "Latest in chain") with no link.
+     - Pred/succ row: two-up grid on sm+, stacked on mobile. Each
+       card carries the existing direction arrow + label + name + year.
+       Whichever side is null shows an empty placeholder so the grid
+       does not collapse asymmetrically.
+     - Variants subsection: rendered below pred/succ when variants[]
+       is non-empty. Smaller cards (h-12 image), 3-col grid on lg+,
+       2-col on sm. No directional arrow - variants are horizontal,
+       not chronological.
 
-   Design constraints (Bible §1 + §9):
-     - Lineage is chronological context, not a comparison. No price,
-       no stat tiles, no "vs" framing. The card just answers "what
-       came before / after this one".
-     - Honest-labeling: when a side is null we explicitly say so
-       rather than hiding the column. A user who lands on RTX 5090
-       and sees "Latest in chain" learns there's no successor yet;
-       hiding the column would leave them guessing whether we
-       just don't have the data.
+   Design constraints (Bible Sec 1 + Sec 9):
+     - Lineage is chronological/sibling context, not a comparison. No
+       price, no stat tiles, no "vs" framing. Each card just answers
+       "what came before/after" or "what other configurations exist".
+     - Honest-labeling: pred/succ explicitly say "First in chain" /
+       "Latest in chain" on the null side rather than hiding the
+       column. Variants section is fully omitted when empty - the
+       count in the header would be (0), and a "no siblings" empty
+       state would be noise.
 
-   2026-05-13: v0 ships NVIDIA GeForce desktop only. Most entity
-   pages today will see this component render with at most one side
-   populated (chain head or tail) or not render at all (out-of-scope
-   chips: AMD Radeon, Intel Arc, Tesla / Quadro / Jetson, etc.).
+   2026-05-25 (session 29):
+     - Variants subsection added. Session 28 ingest shipped 566
+       variant_of edges across 92 CPU groups; this surfaces them.
+       fetchLineage in queries/entity.ts now resolves variant_of
+       targets through the same canonical_entities batch fetch as
+       pred/succ. Sorted alphabetically.
+
+   2026-05-13: v0 ships NVIDIA GeForce desktop only for pred/succ;
+   variants are populated for CPU groups from session 28.
    --------------------------------------------------------------------- */
 
 type Props = {
   predecessor: LineageItem | null;
   successor: LineageItem | null;
+  variants: LineageItem[];
 };
 
 const MONTH_ABBREV = [
@@ -43,10 +52,9 @@ const MONTH_ABBREV = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
-/* Extract just the year for the card side-context. Date-only ISO
-   ('2025-01-30') uses regex direct parse to avoid the UTC-midnight
-   timezone shift bug fixed in EntityPage.formatDate. Full ISO
-   timestamps fall back to Date. */
+/* Extract just the year. Date-only ISO ('2025-01-30') uses regex
+   direct parse to avoid the UTC-midnight timezone shift bug fixed
+   in EntityPage.formatDate. Full ISO timestamps fall back to Date. */
 function formatYear(iso: string | null): string | null {
   if (!iso) return null;
   const dateOnly = iso.match(/^(\d{4})-/);
@@ -70,24 +78,43 @@ function formatReleaseDate(iso: string | null): string | null {
   return d.toLocaleDateString('en-CA', { year: 'numeric', month: 'short' });
 }
 
-export default function EntityLineage({ predecessor, successor }: Props) {
-  if (!predecessor && !successor) return null;
+export default function EntityLineage({ predecessor, successor, variants }: Props) {
+  if (!predecessor && !successor && variants.length === 0) return null;
+
+  const showLineageRow = predecessor != null || successor != null;
+  const showVariants = variants.length > 0;
 
   return (
     <section className="mb-8">
       <h2 className="mb-4 text-lg font-semibold">Lineage</h2>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <LineageCard
-          direction="predecessor"
-          item={predecessor}
-          emptyLabel="First in chain"
-        />
-        <LineageCard
-          direction="successor"
-          item={successor}
-          emptyLabel="Latest in chain"
-        />
-      </div>
+
+      {showLineageRow && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <LineageCard
+            direction="predecessor"
+            item={predecessor}
+            emptyLabel="First in chain"
+          />
+          <LineageCard
+            direction="successor"
+            item={successor}
+            emptyLabel="Latest in chain"
+          />
+        </div>
+      )}
+
+      {showVariants && (
+        <div className={showLineageRow ? 'mt-6' : undefined}>
+          <h3 className="mb-3 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+            {`Variants (${variants.length})`}
+          </h3>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {variants.map((v) => (
+              <VariantCard key={v.id} item={v} />
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -156,6 +183,43 @@ function LineageCard({
           <div className="mt-0.5 text-xs text-zinc-500" title={dateLabel ?? undefined}>
             {year}
           </div>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+function VariantCard({ item }: { item: LineageItem }) {
+  const year = formatYear(item.releaseDate);
+  const href = `${item.routePrefix}/${item.cleanSlug}`;
+
+  return (
+    <Link
+      href={href}
+      className="group flex items-center gap-3 rounded border border-zinc-200 bg-white p-2.5 transition hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/60"
+    >
+      <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+        {item.imageUrl ? (
+          <Image
+            src={item.imageUrl}
+            alt={item.name}
+            fill
+            sizes="3rem"
+            className="object-contain p-1"
+            unoptimized
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-zinc-300 dark:text-zinc-700">
+            <span aria-hidden="true" className="text-base">·</span>
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-zinc-900 group-hover:text-zinc-700 dark:text-zinc-100 dark:group-hover:text-zinc-300">
+          {item.name}
+        </div>
+        {year && (
+          <div className="mt-0.5 text-xs text-zinc-500">{year}</div>
         )}
       </div>
     </Link>
