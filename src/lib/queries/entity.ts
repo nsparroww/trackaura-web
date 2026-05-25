@@ -379,6 +379,9 @@ function countFreshRetailersFromListings(
   const fresh = new Set<RetailerKey>();
   for (const l of listings) {
     if (l.currentPrice == null) continue;
+    /* Phase 0 = NEW only (Bible Section 2). Openbox does not
+       contribute to fresh-retailer count -> coverage tier. */
+    if (l.isOpenBox) continue;
     if (!l.lastObservedAt) continue;
     const ageMs = now - new Date(l.lastObservedAt).getTime();
     if (Number.isNaN(ageMs)) continue;
@@ -410,7 +413,8 @@ async function anyHistoricalObservationExists(
   const { count, error } = await supabase
     .from('price_observations')
     .select('id', { count: 'exact', head: true })
-    .in('listing_id', listingIds);
+    .in('listing_id', listingIds)
+    .eq('is_openbox', false);
   if (error) {
     console.error('[entity] historical observation check failed:', error);
     return false;
@@ -750,7 +754,9 @@ export async function getEntityViewModel(
     let hasPriceHistory: boolean;
     if (ownListings.length === 0) {
       hasPriceHistory = false;
-    } else if (ownListings.some((l) => l.currentPrice != null)) {
+    } else if (
+      ownListings.some((l) => l.currentPrice != null && !l.isOpenBox)
+    ) {
       hasPriceHistory = true;
     } else {
       hasPriceHistory = await anyHistoricalObservationExists(
@@ -896,7 +902,9 @@ async function fetchChildren(
      dozens of boards (Bible Protocol #14 pattern). */
   const children: EntityChild[] = childRows.map((c) => {
     const lst = listingsByChild.get(c.id) ?? [];
-    const inStock = lst.filter((l) => l.currentPrice != null);
+    const inStock = lst.filter(
+      (l) => l.currentPrice != null && !l.isOpenBox,
+    );
     const retailers = new Set(inStock.map((l) => l.retailerKey));
     const cheapest = inStock[0];
 
@@ -1256,7 +1264,9 @@ function computeStats(input: {
   const allListings: EntityListing[] =
     children.length > 0 ? children.flatMap((c) => c.listings) : ownListings;
 
-  const inStock = allListings.filter((l) => l.currentPrice != null);
+  const inStock = allListings.filter(
+    (l) => l.currentPrice != null && !l.isOpenBox,
+  );
   const retailers = new Set(inStock.map((l) => l.retailerKey));
   const cheapest = inStock.reduce<EntityListing | null>(
     (acc, l) =>

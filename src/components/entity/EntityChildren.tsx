@@ -95,7 +95,7 @@ function cheapestListing(child: EntityChild): EntityListing | null {
   let best: EntityListing | null = null;
   let bestPrice = Infinity;
   for (const l of child.listings) {
-    if (l.currentPrice == null || !l.url) continue;
+    if (l.currentPrice == null || !l.url || l.isOpenBox) continue;
     if (l.currentPrice < bestPrice) {
       best = l;
       bestPrice = l.currentPrice;
