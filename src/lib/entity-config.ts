@@ -10,7 +10,8 @@
 
    Conventions (Architecture Bible Section 3, Section 7):
      - entity_type rows in canonical_entities are: 'gpu_chip', 'gpus',
-       'cpu', 'cpu_microarch', 'monitor' today.
+       'cpu', 'cpu_microarch', 'gpu_microarch', 'monitor', 'lego_set',
+       'lego_theme' today.
      - Tree traversal via parent_entity_id (bottom-up).
      - childEntityType = null  -> leaf (own listings, no children section)
      - childEntityType = 'foo' -> branch (children of that type, no own listings)
@@ -78,12 +79,38 @@
      - 'monitors' CategorySlug + CATEGORIES entry added. The /c/monitors
        alias in category-entity-map.ts ships separately, after the
        /monitor/[slug] route verifies (Bible Protocol #35).
+
+   2026-05-25 amendment (gpu_microarch registration; ROADMAP encyclopedic
+   table item):
+     - 'gpu_microarch' entity_type registered as branch entity above
+       'gpu_chip'. 57 microarch entities live: 19 NVIDIA architectures
+       (Ada Lovelace, Ampere, Blackwell, ...), 19 AMD architectures
+       (CDNA, GCN, RDNA, Terascale, VLIW), 19 Intel (Generation, Knights,
+       PowerVR, Xe variants).
+     - gpu_chip.parentEntityType flipped from null -> 'gpu_microarch'
+       so breadcrumb walks up per Bible Section 7 cpu precedent.
+       Breadcrumb becomes Home / Graphics Cards / Microarchitecture /
+       Chip / Board on board pages (Bible Section 7 GPU row reads "2
+       levels" today; that's the doc-vs-code drift to address separately).
+     - cleanSlugBrandPrefixes ['nvidia-', 'amd-', 'intel-']; all 57
+       slugs in DB are brand-prefixed. Canonical URLs: /gpu-microarch/
+       ada-lovelace, /gpu-microarch/rdna-3-0, /gpu-microarch/xe-lpg.
+     - Closes the session 23 smoke log warning:
+       "[entity] breadcrumb walk hit unregistered entity_type='gpu_microarch'".
    ------------------------------------------------------------------------- */
 
 import { BRAND_PREFIXES as GPU_CHIP_BRAND_PREFIXES } from './chip-slug-helpers';
 
 /** All entity_type values currently registered. Expand as verticals come online. */
-export type EntityType = 'gpu_chip' | 'gpus' | 'cpu' | 'cpu_microarch' | 'monitor' | 'lego_set' | 'lego_theme';
+export type EntityType =
+  | 'gpu_chip'
+  | 'gpus'
+  | 'gpu_microarch'
+  | 'cpu'
+  | 'cpu_microarch'
+  | 'monitor'
+  | 'lego_set'
+  | 'lego_theme';
 
 /** All category slugs (drive /c/[slug] and category breadcrumbs). */
 export type CategorySlug = 'gpus' | 'cpus' | 'monitors' | 'lego-sets';
@@ -120,8 +147,8 @@ export type EntityTypeConfig = {
       must themselves resolve via either exact-match or brand-prefix
       fallback. */
   shortSlugAliases?: Readonly<Record<string, string>>;
-  /** When true, this entity type â€” shown as a child in its parent's grid
-      (EntityChildren) â€” falls back to the parent's image when it has no
+  /** When true, this entity type — shown as a child in its parent's grid
+      (EntityChildren) — falls back to the parent's image when it has no
       own image_primary_url. Set for entity types whose siblings share the
       parent's appearance (CPUs: one physical package per microarch). Left
       unset for visually-distinct children (GPU boards differ AIB-to-AIB,
@@ -136,12 +163,27 @@ export type EntityTypeConfig = {
 };
 
 export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
+  gpu_microarch: {
+    routePrefix: '/gpu-microarch',
+    label: 'GPU Microarchitecture',
+    pluralLabel: 'GPU Microarchitectures',
+    childEntityType: 'gpu_chip',
+    parentEntityType: null,
+    category: 'gpus',
+    // All 57 gpu_microarch slugs are brand-prefixed (nvidia-, amd-, intel-).
+    // Canonical URLs are brand-stripped: /gpu-microarch/ada-lovelace,
+    // /gpu-microarch/rdna-3-0, /gpu-microarch/xe-lpg.
+    cleanSlugBrandPrefixes: ['nvidia-', 'amd-', 'intel-'],
+  },
   gpu_chip: {
     routePrefix: '/chip',
     label: 'Graphics Card',
     pluralLabel: 'Graphics Cards',
     childEntityType: 'gpus',
-    parentEntityType: null,
+    // Flipped null -> 'gpu_microarch' 2026-05-25. DB already carries
+    // parent_entity_id pointers from chips to microarchs; this aligns
+    // config with that data so breadcrumb walks gain the microarch tier.
+    parentEntityType: 'gpu_microarch',
     category: 'gpus',
     cleanSlugBrandPrefixes: GPU_CHIP_BRAND_PREFIXES,
     shortSlugAliases: {
@@ -179,7 +221,7 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     parentEntityType: 'cpu_microarch',
     category: 'cpus',
     cleanSlugBrandPrefixes: ['intel-', 'amd-'],
-    /* CPUs under one microarchitecture are the same physical package â€”
+    /* CPUs under one microarchitecture are the same physical package —
        the microarch image is the honest hero image. Drives the
        parent-image fallback in entity.ts fetchChildren. */
     gridImageInheritsParent: true,
@@ -259,6 +301,11 @@ export type CategoryConfig = {
 export const CATEGORIES: Record<CategorySlug, CategoryConfig> = {
   gpus: {
     label: 'Graphics Cards',
+    // topEntityType stays 'gpu_chip' even though gpu_microarch is now
+    // registered as the true tree root. Changing this would rewire what
+    // /c/gpus renders (chips today; microarchs if flipped) and is a UX
+    // change outside this ticket. Flip later if a microarch-first browse
+    // experience is genuinely wanted.
     topEntityType: 'gpu_chip',
     provenance:
       'Catalog data from TechPowerUp (vendored). Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
