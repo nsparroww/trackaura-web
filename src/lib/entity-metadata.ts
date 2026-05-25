@@ -10,17 +10,30 @@ import type { EntityViewModel, EntityListing } from './queries/entity';
    entity-metadata.ts
 
    Shared Metadata + JSON-LD generators for any entity-page route.
-   Mirrors the chip-page handcrafted template structure so the chip
-   cutover (Step 3) doesn't regress existing search-result snippets.
 
-   Why this lives outside the route file:
-     - Phase 0 ships /board/[slug] now and /cpu/[slug] in Step 4.
-     - The Bible's promise (Sec 7) is "adding a new vertical = config
-       entry + entity_type rows + scraper. No new frontend code per
-       vertical."
-     - Inlining metadata in each route file would force re-writing
-       generateMetadata for every new vertical. This module makes the
-       route file a thin shell.
+   Title + description rewrite (2026-05-24, session 23):
+     The previous template ("X Price in Canada · TrackAura" + generic
+     "Compare X across N Canadian retailers" description) ranked at
+     pos 5-10 on 'X price canada' queries and earned 0% CTR over 90
+     days. The GSC audit found the competing snippets (bestvaluegpu.com,
+     trackalacker) all carry concrete dollar amounts: "MSRP $749",
+     "Used $780.66", "$1409 new". A searcher who typed 'rtx 5070 price
+     canada' sees their numbers in 24 words and decides whether to
+     click. Ours showed marketing copy.
+
+     New template injects:
+       - lowest current price in the title (tracked / single_source)
+       - retailer names + low price + MSRP in the description
+       - tier-aware fallback when no current price exists (historical /
+         encyclopedic_only)
+       - branch (chip) handling — branches have coverageTier=null but
+         stats.lowestPrice rolled up from children, so chip pages get
+         "from $X" using the cheapest-board price
+
+     The brandSuffix the old template added ("· NVIDIA Card") was
+     dropped — brand is implicit in chip names ("GeForce" = NVIDIA) and
+     explicit in board names ("ASUS TUF GeForce RTX 5090"), so the
+     suffix added clutter without click value.
    --------------------------------------------------------------------- */
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trackaura.com';
@@ -30,37 +43,109 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trackaura.com';
     schema.org claims align with the visible page's tier badge. */
 const TIER_FRESHNESS_MS = 48 * 3_600_000;
 
-/** Brand suffix is included only when:
-    1. brand is set
-    2. brand is short (<=8 chars) - keeps title under search-result truncation
-    3. the entity name doesn't already contain the brand
-   Boards have brand baked into the name ("ASUS TUF GeForce RTX 5090 OC")
-   so #3 strips the redundant suffix automatically. Chips don't ("GeForce
-   RTX 5090") so the suffix shows up. */
-function brandSuffixFor(entity: EntityViewModel): string {
-  const b = entity.brand;
-  if (!b || b.length > 8) return '';
-  if (entity.name.toLowerCase().includes(b.toLowerCase())) return '';
-  // Use the type's last word as the noun ("Card", "Board", "CPU")
-  const cfg = getEntityTypeConfig(entity.entityType);
-  const noun = cfg.label.split(' ').pop() ?? '';
-  return ` \u00b7 ${b} ${noun}`.trimEnd();
+/** Compact price label for titles + descriptions. No decimals — SERP
+    space is precious and "from $1,599" reads cleaner than "from $1,599.00". */
+function priceLabel(amount: number | null | undefined): string | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  return `$${Math.round(amount).toLocaleString('en-CA')}`;
+}
+
+/** Up to three distinct retailer names from a listing set, in the order
+    they first appear. Used in the description to name who has the item
+    ("at Newegg, Canada Computers, Vuugo") — concrete signal that the
+    snippet isn't templated boilerplate. */
+function retailerSample(listings: EntityListing[]): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const l of listings) {
+    if (l.currentPrice == null) continue;
+    if (seen.has(l.retailerName)) continue;
+    seen.add(l.retailerName);
+    names.push(l.retailerName);
+    if (names.length >= 3) break;
+  }
+  return names;
+}
+
+/** Listings driving the snippet — branches roll up from children, leaves
+    use their own. Sorted cheapest-first (already done upstream in the
+    view model) so the first retailer named is the lowest price. */
+function snippetListings(entity: EntityViewModel): EntityListing[] {
+  if (entity.coverageTier == null) {
+    // Branch (chip): roll up child listings.
+    return entity.children.flatMap((c) => c.listings);
+  }
+  return entity.listings;
 }
 
 export function buildEntityMetadata(entity: EntityViewModel): Metadata {
   const cfg = getEntityTypeConfig(entity.entityType);
   const url = `${SITE}${cfg.routePrefix}/${entity.cleanSlug}`;
-  const suffix = brandSuffixFor(entity);
-  const titleStr = `${entity.name} Price in Canada${suffix} \u00b7 TrackAura`;
 
+  const tier = entity.coverageTier;
+  const isBranch = tier == null;
   const { stats } = entity;
-  let description: string;
-  if (stats.retailerCount >= 2 && stats.activeListingCount > 0) {
-    description = `Compare ${entity.name} prices across ${stats.retailerCount} Canadian retailers \u2014 ${stats.activeListingCount} active listings. Live price history, stock status, and price drop alerts. Updated every few hours.`;
-  } else if (stats.retailerCount === 1) {
-    description = `Live ${entity.name} price tracking in Canada. Price history, stock status, and price drop alerts. Updated every few hours.`;
+
+  const lowPrice = priceLabel(stats.lowestPrice);
+  const msrpStr = priceLabel(entity.msrp);
+  const retailers = retailerSample(snippetListings(entity));
+  const retailerStr = retailers.join(', ');
+  const retailerCount = stats.retailerCount;
+
+  /* ----- Title -------------------------------------------------------
+     Lead with the entity name (the searcher's query terms) then "Price
+     in Canada" (intent match) then the lowest dollar amount (the
+     click-winning concrete number). Branch and tracked-leaf paths
+     converge — both have a real "from $X" to show. Single-source drops
+     "from" since there's nothing to compare. Historical leaves shift to
+     "Price History" framing (no current claim made). Encyclopedic-only
+     and zero-retailer branches fall to a specs-and-tracking title that
+     doesn't promise prices the page can't deliver. */
+  let titleStr: string;
+  if (lowPrice && (isBranch || tier === 'well_tracked' || tier === 'tracked')) {
+    titleStr = `${entity.name} Price in Canada — from ${lowPrice} | TrackAura`;
+  } else if (lowPrice && tier === 'single_source') {
+    titleStr = `${entity.name} — ${lowPrice} in Canada | TrackAura`;
+  } else if (tier === 'historical') {
+    titleStr = `${entity.name} Price History in Canada | TrackAura`;
+  } else if (tier === 'encyclopedic_only' || isBranch) {
+    // Encyclopedic-only leaf, or a branch with no in-stock children.
+    titleStr = `${entity.name} — Specs & Canadian Retailers | TrackAura`;
   } else {
-    description = `Canadian price tracking for ${entity.name}. Compare prices, view price history, and get alerts when stock returns at major Canadian retailers.`;
+    // Leaf with retailers but no current price (rare; defensive fallback).
+    titleStr = `${entity.name} Price in Canada | TrackAura`;
+  }
+
+  /* ----- Description ------------------------------------------------
+     Concrete numbers + retailer names + MSRP. The competing snippets
+     that earn clicks ("MSRP $749", "Used $780.66") all share this
+     shape: the price you searched for, named retailers, and an
+     anchor (MSRP). Length budget ~155 chars before SERP truncation. */
+  const msrpClause = msrpStr
+  ? ` MSRP ${msrpStr} ${entity.msrpCurrency ?? 'CAD'}.`
+  : '';
+
+  let description: string;
+  if (lowPrice && retailerCount >= 2) {
+    const at = retailerStr ? ` at ${retailerStr}` : '';
+    description = `${entity.name} in Canada from ${lowPrice} CAD across ${retailerCount} retailers${at}. Live price history and drop alerts.${msrpClause}`;
+  } else if (lowPrice && retailerCount === 1) {
+    const at = retailerStr ? ` at ${retailerStr}` : '';
+    description = `${entity.name} listed${at}: ${lowPrice} CAD. Live price history and drop alerts.${msrpClause}`;
+  } else if (tier === 'historical') {
+    const lastSeen = lowPrice ? ` Last tracked at ${lowPrice} CAD.` : '';
+    description = `${entity.name} price history in Canada.${lastSeen} No current retail availability — we'll notify you when stock returns.${msrpClause}`;
+  } else if (isBranch || tier === 'encyclopedic_only') {
+    description = `${entity.name} specs and Canadian retailer tracking. We monitor major Canadian electronics retailers and notify you when listings appear.${msrpClause}`;
+  } else {
+    description = `Track ${entity.name} prices across Canadian retailers. Price history charts and drop alerts.${msrpClause}`;
+  }
+
+  /* Defensive truncation. Google rewrites overlong descriptions anyway,
+     but a clean cut at 160 chars beats a midword ellipsis from the
+     SERP engine. */
+  if (description.length > 160) {
+    description = description.slice(0, 157).trimEnd() + '…';
   }
 
   return {
@@ -68,7 +153,10 @@ export function buildEntityMetadata(entity: EntityViewModel): Metadata {
     description,
     alternates: { canonical: url },
     openGraph: {
-      title: `${entity.name} Price in Canada${suffix}`,
+      // OG title drops the " | TrackAura" — the site name shows up in
+      // OG metadata fields instead, and social previews look cleaner
+      // without the suffix.
+      title: titleStr.replace(/ \| TrackAura$/, ''),
       description,
       type: 'website',
       url,
