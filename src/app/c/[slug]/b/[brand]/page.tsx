@@ -10,6 +10,12 @@ type Params = { slug: string; brand: string };
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trackaura.com';
 
+// Pages with fewer than this many products are sparse / dilutive in
+// Google's eyes and harm domain-wide rankings. They still render to
+// humans (someone may link directly) and PageRank still flows through
+// the in-stock product links — we hide them from Search only.
+const SPARSE_PAGE_THRESHOLD = 50;
+
 export async function generateMetadata({
   params,
 }: {
@@ -19,10 +25,13 @@ export async function generateMetadata({
   const vm = await getBrandInCategoryViewModel(slug, brand);
   if (!vm) return { title: 'Not found · TrackAura' };
 
+  const isSparse = vm.stats.totalProducts < SPARSE_PAGE_THRESHOLD;
+
   return {
     title: `${vm.brandName} ${vm.categoryName} — Live Prices in Canada · TrackAura`,
     description: `Compare live Canadian prices for ${vm.stats.totalProducts.toLocaleString()} ${vm.brandName} ${vm.categoryName.toLowerCase()}. Price history, deal alerts, and all-time-low tracking.`,
     alternates: { canonical: `${SITE}/c/${slug}/b/${brand}` },
+    robots: isSparse ? { index: false, follow: true } : undefined,
     openGraph: {
       title: `${vm.brandName} ${vm.categoryName} — Live Prices in Canada`,
       description: `${vm.stats.totalProducts.toLocaleString()} products · ${vm.stats.atLowest} at all-time low`,
@@ -115,16 +124,16 @@ export default async function Page({
 
 export const revalidate = 600;
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────
 // ISR co-requisites (Bible Protocol #37, 2026-05-09 next-session). The
 // `export const revalidate` above is silently ignored on dynamic-segment
 // routes without these two: generateStaticParams() returning [] = no
 // paths prerendered at build, dynamicParams=true = generate-and-cache
 // on first visit, serve from edge cache thereafter. Prerequisite:
 // queries/category.ts and queries/brand.ts now use createCatalogClient()
-// (cookie-free) â€” was hidden render-graph blocker analogous to
+// (cookie-free) — was hidden render-graph blocker analogous to
 // entity-slug.ts in Group A.
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────
 export async function generateStaticParams() {
   return [];
 }

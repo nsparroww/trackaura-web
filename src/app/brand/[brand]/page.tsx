@@ -10,6 +10,13 @@ import { CATEGORY_LABELS, Product } from "@/types";
 // (matches scrape cycle). Cuts reads from this page by ~95%+.
 export const revalidate = 14400;
 
+// Pages with fewer than this many products are sparse / dilutive in
+// Google's eyes. The brand-data step below already filters to >=10 (so
+// brands under 10 don't render at all); this threshold catches the
+// 10-49 range — they still render to humans (and PageRank flows through
+// product links via follow:true), we just hide them from Search.
+const SPARSE_PAGE_THRESHOLD = 50;
+
 function extractBrand(name: string): string {
   const words = name.split(/\s+/);
   return words[0] || "";
@@ -69,10 +76,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   if (!brandName) return { title: "Brand Not Found" };
 
   const count = brands[brandName].length;
+  const isSparse = count < SPARSE_PAGE_THRESHOLD;
+
   return {
     title: brandName + " Prices in Canada - " + count + " Products Tracked",
     description: "Track " + brandName + " prices across Canadian retailers. Compare " + count + " products at Canada Computers and Newegg Canada. Price history, deals, and alerts.",
     alternates: { canonical: "https://www.trackaura.com/brand/" + slug },
+    robots: isSparse ? { index: false, follow: true } : undefined,
   };
 }
 
@@ -205,7 +215,7 @@ function ProductRow({ product, badge, badgeColor }: { product: Product; badge?: 
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────
 // ISR co-requisites (Bible Protocol #37, 2026-05-09 next-session). The
 // `export const revalidate` above is silently ignored on dynamic-segment
 // routes without these two: generateStaticParams() returning [] = no
@@ -213,7 +223,7 @@ function ProductRow({ product, badge, badgeColor }: { product: Product; badge?: 
 // on first visit, serve from edge cache thereafter. This route uses
 // pg.Pool (no Supabase cookies in the render graph), so the export
 // pair is the only fix needed.
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ────────────────────────────────────────────────────────────────────
 export async function generateStaticParams() {
   return [];
 }
