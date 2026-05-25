@@ -226,6 +226,20 @@ export function buildEntityProductLd(entity: EntityViewModel) {
   if (entity.releaseDate) {
     product.releaseDate = entity.releaseDate;
   }
+  if (entity.variants.length > 0) {
+    /* schema.org/isSimilarTo: functionally similar products. For
+       variant_of edges (same generation / architecture, different
+       SKU) this is more accurate than isRelatedTo, which schema.org
+       reserves for "related but not necessarily similar". Minimal
+       payload (name + url) lets grounding pipelines fan out to each
+       variant's own Product LD if more detail is needed (Bible
+       Section 1 user moment 5). */
+    product.isSimilarTo = entity.variants.map((v) => ({
+      '@type': 'Product',
+      name: v.name,
+      url: `${SITE}${v.routePrefix}/${v.cleanSlug}`,
+    }));
+  }
 
   const tier = entity.coverageTier;
 
