@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import BrandInCategoryPage from '@/components/brand/BrandInCategoryPage';
@@ -117,14 +118,20 @@ export default async function Page({
         // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
       />
-      <BrandInCategoryPage vm={vm} />
+      {/* Suspense required at the call site for BrandInCategoryPage's
+          useSearchParams hook. Without this wrapper the build passes but
+          every render of this route throws at runtime with 100% error rate
+          (Bible Risk #25, materialized session 13 on CategoryPage). */}
+      <Suspense fallback={null}>
+        <BrandInCategoryPage vm={vm} />
+      </Suspense>
     </>
   );
 }
 
 export const revalidate = 600;
 
-// ────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────
 // ISR co-requisites (Bible Protocol #37, 2026-05-09 next-session). The
 // `export const revalidate` above is silently ignored on dynamic-segment
 // routes without these two: generateStaticParams() returning [] = no
@@ -133,7 +140,7 @@ export const revalidate = 600;
 // queries/category.ts and queries/brand.ts now use createCatalogClient()
 // (cookie-free) — was hidden render-graph blocker analogous to
 // entity-slug.ts in Group A.
-// ────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────
 export async function generateStaticParams() {
   return [];
 }

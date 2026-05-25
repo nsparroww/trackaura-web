@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, Check, Flame, Tag } from 'lucide-react';
 import { RETAILERS } from '@/lib/retailers';
@@ -26,19 +27,53 @@ const fmtPrice = (n: number) =>
   `$${Math.round(n).toLocaleString('en-CA', { maximumFractionDigits: 0 })}`;
 const fmtCount = (n: number) => n.toLocaleString('en-CA');
 
+const PAGE_SIZE = 48;
+
 type SortKey = 'deals' | 'price-asc' | 'price-desc' | 'name-asc';
 
-/* ──────────────────────────────────────────────────────────────
+/* ──────────────────────────────────────────────────────────────────────
    Page
-   ────────────────────────────────────────────────────────────── */
+   ────────────────────────────────────────────────────────────────────── */
 
 export default function BrandInCategoryPage({
   vm,
+  entityRoutePrefix = '/p',
 }: {
   vm: BrandInCategoryViewModel;
+  /**
+   * Where individual product cards link. Defaults to '/p' (v0 canonical_products
+   * read path). Migrated verticals pass '/chip', '/cpu', etc. via the route.
+   */
+  entityRoutePrefix?: string;
 }) {
-  const [inStockOnly, setInStockOnly] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>('deals');
+  // Browse state lives in URL search params so back-button, refresh, and
+  // sharing all preserve position. Filter/sort changes use router.replace
+  // (no history pollution); page changes use router.push (back-button
+  // undoes a page click). Defaults (p=1, stock=off, sort=deals) are
+  // encoded by absence — canonical URLs stay clean.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const page = Math.max(1, parseInt(searchParams.get('p') ?? '1', 10) || 1);
+  const inStockOnly = searchParams.get('stock') === '1';
+  const sortKey = (searchParams.get('sort') as SortKey) ?? 'deals';
+
+  const updateUrl = useCallback(
+    (
+      mutate: (p: URLSearchParams) => void,
+      opts: { resetPage?: boolean; push?: boolean } = {},
+    ) => {
+      const params = new URLSearchParams(searchParams.toString());
+      mutate(params);
+      if (opts.resetPage) params.delete('p');
+      const qs = params.toString();
+      const url = qs ? `${pathname}?${qs}` : pathname;
+      if (opts.push) router.push(url, { scroll: false });
+      else router.replace(url, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
   const filteredProducts = useMemo(() => {
     let list = vm.products;
@@ -95,6 +130,37 @@ export default function BrandInCategoryPage({
     }
     return sorted;
   }, [vm.products, inStockOnly, sortKey]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredProducts.length / PAGE_SIZE),
+  );
+  const safePage = Math.min(page, totalPages);
+  const pagedProducts = useMemo(
+    () =>
+      filteredProducts.slice(
+        (safePage - 1) * PAGE_SIZE,
+        safePage * PAGE_SIZE,
+      ),
+    [filteredProducts, safePage],
+  );
+
+  const goToPage = (n: number) => {
+    const target = Math.max(1, Math.min(totalPages, n));
+    updateUrl(
+      (p) => {
+        if (target === 1) p.delete('p');
+        else p.set('p', String(target));
+      },
+      { push: true },
+    );
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const firstOnPage = (safePage - 1) * PAGE_SIZE + 1;
+  const lastOnPage = Math.min(safePage * PAGE_SIZE, filteredProducts.length);
 
   return (
     <div>
@@ -241,7 +307,15 @@ export default function BrandInCategoryPage({
               <input
                 type="checkbox"
                 checked={inStockOnly}
-                onChange={(e) => setInStockOnly(e.target.checked)}
+                onChange={(e) =>
+                  updateUrl(
+                    (p) => {
+                      if (e.target.checked) p.set('stock', '1');
+                      else p.delete('stock');
+                    },
+                    { resetPage: true },
+                  )
+                }
                 className="h-3.5 w-3.5"
                 style={{ accentColor: 'var(--accent)' }}
               />
@@ -251,8 +325,9 @@ export default function BrandInCategoryPage({
               className="text-[11px] tabular-nums"
               style={{ color: C.textDim, fontFamily: FONT_DISPLAY }}
             >
-              {fmtCount(filteredProducts.length)} of{' '}
-              {fmtCount(vm.products.length)}
+              {filteredProducts.length === 0
+                ? `0 of ${fmtCount(vm.products.length)}`
+                : `${fmtCount(firstOnPage)}-${fmtCount(lastOnPage)} of ${fmtCount(filteredProducts.length)}`}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -266,7 +341,16 @@ export default function BrandInCategoryPage({
             <select
               id="sort-select"
               value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              onChange={(e) => {
+                const v = e.target.value;
+                updateUrl(
+                  (p) => {
+                    if (v === 'deals') p.delete('sort');
+                    else p.set('sort', v);
+                  },
+                  { resetPage: true },
+                );
+              }}
               className="rounded-md px-2 py-1 text-[11px] outline-none"
               style={{
                 background: C.bgSecondary,
@@ -293,7 +377,9 @@ export default function BrandInCategoryPage({
                 No products match these filters.
               </p>
               <button
-                onClick={() => setInStockOnly(false)}
+                onClick={() =>
+                  updateUrl((p) => p.delete('stock'), { resetPage: true })
+                }
                 className="mt-3 text-[11px] transition-opacity hover:opacity-80"
                 style={{ color: C.accent, fontFamily: FONT_DISPLAY }}
               >
@@ -301,11 +387,28 @@ export default function BrandInCategoryPage({
               </button>
             </div>
           ) : (
-            <div className="grid-products">
-              {filteredProducts.map((p) => (
-                <ProductCard key={p.id} product={p} />
-              ))}
-            </div>
+            <>
+              <div className="grid-products">
+                {pagedProducts.map((p) => (
+                  <ProductCard
+                    key={p.id}
+                    product={p}
+                    entityRoutePrefix={entityRoutePrefix}
+                  />
+                ))}
+              </div>
+
+              {totalPages > 1 && (
+                <Pagination
+                  page={safePage}
+                  totalPages={totalPages}
+                  onPrev={() => goToPage(safePage - 1)}
+                  onNext={() => goToPage(safePage + 1)}
+                  onFirst={() => goToPage(1)}
+                  onLast={() => goToPage(totalPages)}
+                />
+              )}
+            </>
           )}
         </div>
       </section>
@@ -344,7 +447,94 @@ function Stat({
   );
 }
 
-function ProductCard({ product }: { product: CategoryProduct }) {
+function Pagination({
+  page,
+  totalPages,
+  onPrev,
+  onNext,
+  onFirst,
+  onLast,
+}: {
+  page: number;
+  totalPages: number;
+  onPrev: () => void;
+  onNext: () => void;
+  onFirst: () => void;
+  onLast: () => void;
+}) {
+  const btnBase =
+    'rounded-md px-3 py-1.5 text-[11px] transition-opacity disabled:cursor-not-allowed disabled:opacity-30 hover:opacity-80';
+  const btnStyle: React.CSSProperties = {
+    background: C.bgSecondary,
+    border: `1px solid ${C.border}`,
+    color: C.text,
+    fontFamily: FONT_DISPLAY,
+  };
+
+  return (
+    <nav
+      aria-label="Pagination"
+      className="mt-8 flex items-center justify-center gap-2"
+    >
+      <button
+        type="button"
+        onClick={onFirst}
+        disabled={page === 1}
+        className={btnBase}
+        style={btnStyle}
+      >
+        First
+      </button>
+      <button
+        type="button"
+        onClick={onPrev}
+        disabled={page === 1}
+        className={btnBase}
+        style={btnStyle}
+      >
+        Prev
+      </button>
+      <span
+        className="px-3 text-[11px] tabular-nums"
+        style={{ color: C.textDim, fontFamily: FONT_DISPLAY }}
+      >
+        Page <span style={{ color: C.text }}>{page}</span> of{' '}
+        <span style={{ color: C.text }}>{totalPages}</span>
+      </span>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={page === totalPages}
+        className={btnBase}
+        style={btnStyle}
+      >
+        Next
+      </button>
+      <button
+        type="button"
+        onClick={onLast}
+        disabled={page === totalPages}
+        className={btnBase}
+        style={btnStyle}
+      >
+        Last
+      </button>
+    </nav>
+  );
+}
+
+function ProductCard({
+  product,
+  entityRoutePrefix,
+}: {
+  product: CategoryProduct;
+  entityRoutePrefix: string;
+}) {
+  // Per-card image-load guard. Some entities have a non-null image URL
+  // that 404s; without this state the alt text would render in the image
+  // area and bleed product names into the card.
+  const [imgFailed, setImgFailed] = useState(false);
+
   const retailer = product.bestRetailerId
     ? RETAILERS[product.bestRetailerId]
     : null;
@@ -359,9 +549,11 @@ function ProductCard({ product }: { product: CategoryProduct }) {
         )
       : 0;
 
+  const showImage = !!product.imageUrl && !imgFailed;
+
   return (
     <Link
-      href={`/p/${product.slug}`}
+      href={`${entityRoutePrefix}/${product.slug}`}
       className="card group flex flex-col overflow-hidden"
       style={{ textDecoration: 'none' }}
     >
@@ -372,11 +564,12 @@ function ProductCard({ product }: { product: CategoryProduct }) {
           background: `linear-gradient(135deg, ${C.bgCard}, ${C.bg})`,
         }}
       >
-        {product.imageUrl ? (
+        {showImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={product.imageUrl}
+            src={product.imageUrl as string}
             alt={product.name}
+            onError={() => setImgFailed(true)}
             className="h-full w-full object-contain p-4 transition duration-200 group-hover:scale-[1.03]"
             loading="lazy"
           />
