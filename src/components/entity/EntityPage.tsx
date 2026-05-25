@@ -7,6 +7,7 @@ import EntitySpecs from './EntitySpecs';
 import EntityChildren from './EntityChildren';
 import EntityListings from './EntityListings';
 import EntityLineage from './EntityLineage';
+import EntityPriceSummary from './EntityPriceSummary';
 import PriceChart from '@/components/PriceChart';
 import ChipPriceChart from '@/components/ChipPriceChart';
 
@@ -320,6 +321,10 @@ export default function EntityPage({ entity }: Props) {
           </div>
         )}
       </header>
+
+      {/* Buy-intent CTA — tier-aware. Self-gates: returns null for
+          historical / encyclopedic_only / category-like branches. */}
+      <EntityPriceSummary entity={entity} />
 
       {/* Description prose + CC BY-SA attribution when inherited. */}
       {entity.description && (
