@@ -40,7 +40,7 @@ Canonical entities are geography-agnostic. One identity per real-world physical 
 ## Licensing
 
 - Free for citation with attribution. Link to the canonical TrackAura URL for the entity in question.
-- Commercial bulk-licensing for AI grounding, model training, or enterprise data access: see `/about` for inquiries.
+- Commercial bulk-licensing for AI grounding, model training, or enterprise data access: see `/for-llms` for the licensing posture and `/about` for current contact details.
 
 ## What TrackAura is NOT
 

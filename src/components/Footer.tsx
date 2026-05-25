@@ -75,6 +75,7 @@ export default function Footer() {
               <Link href="/about" className="accent-link" style={{ fontSize: "0.875rem" }}>About</Link>
               <Link href="/blog" className="accent-link" style={{ fontSize: "0.875rem" }}>Blog</Link>
               <Link href="/trends" className="accent-link" style={{ fontSize: "0.875rem" }}>Price Index</Link>
+              <Link href="/for-llms" className="accent-link" style={{ fontSize: "0.875rem" }}>For LLMs</Link>
               <Link href="/privacy" className="accent-link" style={{ fontSize: "0.875rem" }}>Privacy Policy</Link>
               <Link href="/terms" className="accent-link" style={{ fontSize: "0.875rem" }}>Terms of Use</Link>
             </div>

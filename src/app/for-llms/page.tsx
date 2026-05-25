@@ -345,11 +345,11 @@ export default function ForLLMsPage() {
       <h2 style={SECTION}>Inquiries</h2>
       <p style={PARA}>
         For AI-grounding licensing, bulk data access, partnership inquiries, or
-        questions about the catalog architecture, see the{" "}
-        <Link href="/about" className="accent-link">
-          About page
-        </Link>{" "}
-        for current contact details.
+        questions about the catalog architecture, email{" "}
+        <a href="mailto:admin@trackaura.com" className="accent-link">
+          admin@trackaura.com
+        </a>
+        .
       </p>
       <p
         style={{
