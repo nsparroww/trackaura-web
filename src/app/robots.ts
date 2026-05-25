@@ -7,56 +7,60 @@ import {
 const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trackaura.com';
 
 /**
- * Crawler policy — three audiences:
+ * Crawler policy — single audience, narrow Disallow.
  *
- * 1. Search engines (Google, Bing, DuckDuckGo, Yandex)
- *    Drive Phase 0 SEO. Full access except internal routes.
+ * The bible §1 names "the machine" as user moment 5 — every AI assistant,
+ * agent, grounding pipeline, and LLM that needs to ground a claim about
+ * a physical item. The catalog is meant to be the canonical reference,
+ * machine-citable by construction. §8 line 4 (data licensing + AI
+ * grounding) is the asymmetric upside line built on this access.
  *
- * 2. AI citation crawlers (GPTBot, ClaudeBot, PerplexityBot, etc.)
- *    Drive ~5% of active users today via citations in ChatGPT/Claude/
- *    Perplexity answers. Full access except internal routes.
+ * Therefore: every crawler that respects robots.txt is welcome on the
+ * catalog. Named bots (search engines + AI citation crawlers, listed in
+ * bot-policy.ts) are listed explicitly mainly for documentation and so
+ * that allow-list audits are legible; their effective rules are
+ * identical to the wildcard.
  *
- * 3. Everyone else (default)
- *    Allowed to see homepage, blog, trends, about — i.e. enough to
- *    know TrackAura exists. Disallowed from /p/ and /c/ — the
- *    catalog and category pages, which are the moat (per §1).
+ * Defense against bad actors that ignore robots.txt is proxy.ts's job
+ * (BLOCKED_BOTS in bot-policy.ts — CCBot, Bytespider, AhrefsBot,
+ * Semrush, etc. get 403'd at the edge regardless of what this file
+ * says).
  *
- * Bot user-agent lists live in src/lib/bot-policy.ts (shared with
- * src/proxy.ts per ARCHITECTURE.md §13.16). Bad actors ignore
- * robots.txt; defending against them is proxy.ts's job.
+ * Historical note: prior to 2026-05-25 this file emitted a wildcard
+ * Disallow of /p/, /c/, /category/, /products, /search — framed as
+ * "the catalog is the moat." That framing predates the canonical-
+ * reference pivot in bible §1 and contradicts current vision. Removed
+ * session 25. The bible §11 LLM-citation work was undermined by it for
+ * months — symmetric failure mode to the 2026-04-26 proxy.ts allow/
+ * block mismatch.
  *
  * Single source of truth — public/robots.txt is deleted; this file
  * generates /robots.txt at request time via Next.js App Router.
  */
 
-// Block list applied to every audience — internal routes, never crawled.
+// Internal routes never crawled by anyone.
 const INTERNAL_DISALLOW = ['/api/', '/_next/', '/admin/'];
 
-// What unidentified crawlers are restricted from.
-// They get the homepage, blog, trends, about — enough to know we exist.
-// They do NOT get the catalog or category pages.
-const CATALOG_DISALLOW = ['/p/', '/c/', '/category/', '/products', '/search'];
-
 export default function robots(): MetadataRoute.Robots {
-  const allowedAudiences = [
+  const namedAudiences = [
     ...ALLOWED_SEARCH_ENGINES,
     ...ALLOWED_AI_CITATION_BOTS,
   ];
 
   return {
     rules: [
-      // Whitelisted bots — full access except internal routes.
-      ...allowedAudiences.map((userAgent) => ({
+      // Named allow-listed bots — same rules as wildcard, listed
+      // explicitly for documentation and audit legibility.
+      ...namedAudiences.map((userAgent) => ({
         userAgent,
         allow: '/',
         disallow: INTERNAL_DISALLOW,
       })),
-      // Default — restrict catalog access for everyone else.
-      // They can see the homepage, about, blog, trends, etc.
+      // Everyone else — same access, narrow Disallow.
       {
         userAgent: '*',
         allow: '/',
-        disallow: [...INTERNAL_DISALLOW, ...CATALOG_DISALLOW],
+        disallow: INTERNAL_DISALLOW,
       },
     ],
     sitemap: `${BASE}/sitemap.xml`,
