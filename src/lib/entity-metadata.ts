@@ -34,14 +34,44 @@ import type { EntityViewModel, EntityListing } from './queries/entity';
      dropped — brand is implicit in chip names ("GeForce" = NVIDIA) and
      explicit in board names ("ASUS TUF GeForce RTX 5090"), so the
      suffix added clutter without click value.
+
+   GeForce-prefix strip (2026-05-26, session 34):
+     GSC per-page diagnostic on /chip/rtx-5070 found pos 8.4 / 28 imp,
+     while /blog/rtx-5070-canada-price-tracking ranks pos 6.4 / 1330 imp
+     for the same chip on the same money query ("rtx 5070 price canada
+     2026"). Same site, same chip, 2-position gap, 47x impression gap.
+     The cheapest hypothesis: title token-frontness. The blog leads with
+     "RTX 5070" (the query tokens); the entity leads with "GeForce RTX
+     5070" (an extra family-brand token that searchers drop colloquially
+     — nobody types "GeForce RTX 5070 price canada", they type "RTX
+     5070 price canada"). Stripping "GeForce " from SERP-visible surfaces
+     (title, meta description, OG title/desc) isolates the variable
+     against the in-flight blog measurement window. JSON-LD Product.name
+     stays canonical (machine-citability — bible §1 user moment 5).
+     Page body, H1, breadcrumbs all untouched (landed users see full
+     canonical names; "GeForce" is informative once they're on the page).
+
+     NVIDIA-only by design. "Radeon" is shorter and more search-active
+     ("radeon rx 9070" is a common query); "Arc" is Intel's load-bearing
+     brand token. If GeForce strip moves position, the test generalizes;
+     until then, one variable.
    --------------------------------------------------------------------- */
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://trackaura.com';
 
-/** Tier classification window (Bible Sec 9). Matches FRESHNESS_HOURS_FOR_TIER
+/** Tier classification window (Bible §9). Matches FRESHNESS_HOURS_FOR_TIER
     in queries/entity.ts. JSON-LD offer emission uses this window so
     schema.org claims align with the visible page's tier badge. */
 const TIER_FRESHNESS_MS = 48 * 3_600_000;
+
+/** SERP-optimized display of entity.name. Strips the "GeForce " family-
+    brand prefix wherever it appears so titles + descriptions lead with
+    the tokens users actually type. Leaves entity.name untouched on the
+    view model — only SERP-visible string fields call this. See header
+    block (s34) for rationale. */
+function seoName(name: string): string {
+  return name.replace(/\bGeForce\s+/gi, '').replace(/\s{2,}/g, ' ').trim();
+}
 
 /** Compact price label for titles + descriptions. No decimals — SERP
     space is precious and "from $1,599" reads cleaner than "from $1,599.00". */
@@ -86,6 +116,10 @@ export function buildEntityMetadata(entity: EntityViewModel): Metadata {
   const isBranch = tier == null;
   const { stats } = entity;
 
+  /* SERP-visible name. Used in title + description + OG (via title
+     replace). JSON-LD and page body keep entity.name. */
+  const dispName = seoName(entity.name);
+
   const lowPrice = priceLabel(stats.lowestPrice);
   const msrpStr = priceLabel(entity.msrp);
   const retailers = retailerSample(snippetListings(entity));
@@ -103,17 +137,17 @@ export function buildEntityMetadata(entity: EntityViewModel): Metadata {
      doesn't promise prices the page can't deliver. */
   let titleStr: string;
   if (lowPrice && (isBranch || tier === 'well_tracked' || tier === 'tracked')) {
-    titleStr = `${entity.name} Price in Canada — from ${lowPrice} | TrackAura`;
+    titleStr = `${dispName} Price in Canada — from ${lowPrice} | TrackAura`;
   } else if (lowPrice && tier === 'single_source') {
-    titleStr = `${entity.name} — ${lowPrice} in Canada | TrackAura`;
+    titleStr = `${dispName} — ${lowPrice} in Canada | TrackAura`;
   } else if (tier === 'historical') {
-    titleStr = `${entity.name} Price History in Canada | TrackAura`;
+    titleStr = `${dispName} Price History in Canada | TrackAura`;
   } else if (tier === 'encyclopedic_only' || isBranch) {
     // Encyclopedic-only leaf, or a branch with no in-stock children.
-    titleStr = `${entity.name} — Specs & Canadian Retailers | TrackAura`;
+    titleStr = `${dispName} — Specs & Canadian Retailers | TrackAura`;
   } else {
     // Leaf with retailers but no current price (rare; defensive fallback).
-    titleStr = `${entity.name} Price in Canada | TrackAura`;
+    titleStr = `${dispName} Price in Canada | TrackAura`;
   }
 
   /* ----- Description ------------------------------------------------
@@ -128,17 +162,17 @@ export function buildEntityMetadata(entity: EntityViewModel): Metadata {
   let description: string;
   if (lowPrice && retailerCount >= 2) {
     const at = retailerStr ? ` at ${retailerStr}` : '';
-    description = `${entity.name} in Canada from ${lowPrice} CAD across ${retailerCount} retailers${at}. Live price history and drop alerts.${msrpClause}`;
+    description = `${dispName} in Canada from ${lowPrice} CAD across ${retailerCount} retailers${at}. Live price history and drop alerts.${msrpClause}`;
   } else if (lowPrice && retailerCount === 1) {
     const at = retailerStr ? ` at ${retailerStr}` : '';
-    description = `${entity.name} listed${at}: ${lowPrice} CAD. Live price history and drop alerts.${msrpClause}`;
+    description = `${dispName} listed${at}: ${lowPrice} CAD. Live price history and drop alerts.${msrpClause}`;
   } else if (tier === 'historical') {
     const lastSeen = lowPrice ? ` Last tracked at ${lowPrice} CAD.` : '';
-    description = `${entity.name} price history in Canada.${lastSeen} No current retail availability — we'll notify you when stock returns.${msrpClause}`;
+    description = `${dispName} price history in Canada.${lastSeen} No current retail availability — we'll notify you when stock returns.${msrpClause}`;
   } else if (isBranch || tier === 'encyclopedic_only') {
-    description = `${entity.name} specs and Canadian retailer tracking. We monitor major Canadian electronics retailers and notify you when listings appear.${msrpClause}`;
+    description = `${dispName} specs and Canadian retailer tracking. We monitor major Canadian electronics retailers and notify you when listings appear.${msrpClause}`;
   } else {
-    description = `Track ${entity.name} prices across Canadian retailers. Price history charts and drop alerts.${msrpClause}`;
+    description = `Track ${dispName} prices across Canadian retailers. Price history charts and drop alerts.${msrpClause}`;
   }
 
   /* Defensive truncation. Google rewrites overlong descriptions anyway,
@@ -165,7 +199,7 @@ export function buildEntityMetadata(entity: EntityViewModel): Metadata {
 }
 
 /* --- JSON-LD --------------------------------------------------------
-   Schema.org Product. Tier-aware offer emission per Bible Sec 9
+   Schema.org Product. Tier-aware offer emission per Bible §9
    honest-labeling (2026-05-08, Active Item 3):
      - Branches (chips, tier=null): Product only, no offers field.
        The chip itself isn't sold; aggregating offers across child
@@ -185,7 +219,12 @@ export function buildEntityMetadata(entity: EntityViewModel): Metadata {
    is offer emission, not the Product wrapper.
 
    Now also includes image, description, releaseDate when present -
-   richer payload for LLM grounding pipelines (Bible Sec 1 user 5).
+   richer payload for LLM grounding pipelines (Bible §1 user 5).
+
+   NOTE (s34, 2026-05-26): JSON-LD Product.name uses entity.name
+   (canonical, includes "GeForce" prefix) by design. SERP titles strip
+   the prefix via seoName(); machine-citation surfaces keep the full
+   canonical for unambiguous grounding.
    ------------------------------------------------------------------- */
 
 function listingsFreshForTier(entity: EntityViewModel): EntityListing[] {
@@ -233,7 +272,7 @@ export function buildEntityProductLd(entity: EntityViewModel) {
        reserves for "related but not necessarily similar". Minimal
        payload (name + url) lets grounding pipelines fan out to each
        variant's own Product LD if more detail is needed (Bible
-       Section 1 user moment 5). */
+       §1 user moment 5). */
     product.isSimilarTo = entity.variants.map((v) => ({
       '@type': 'Product',
       name: v.name,
