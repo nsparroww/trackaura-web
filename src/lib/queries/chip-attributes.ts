@@ -142,9 +142,14 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   processor_number:    { label: 'Processor Number',  group: 'Identity' },
   vertical_segment:    { label: 'Segment',           group: 'Identity' },
   product_collection:  { label: 'Product Collection', group: 'Identity' },
-  codename:            { label: 'Codename',          group: 'Identity' },
+  // codename and code_name both exist on every CPU (970/970, both brands).
+  // codename is Intel ARK's long-form ("Products formerly Raptor Lake");
+  // code_name is the clean short form ("Raptor Lake"). Surfacing only
+  // code_name avoids duplicate rows and gives the better display value.
+  code_name:           { label: 'Codename',          group: 'Identity' },
   package_sockets_supported: { label: 'Socket',      group: 'Identity' },
   launch_date:         { label: 'Launch',            group: 'Identity' },
+  release_quarter:     { label: 'Release Quarter',   group: 'Identity' },
 
   // --- Performance ---
   total_cores:                 { label: 'Total Cores',          group: 'Performance' },
@@ -158,24 +163,46 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   efficient_core_base_frequency:        { label: 'E-Core Base',      group: 'Performance' },
   cache:                       { label: 'Cache',                group: 'Performance' },
   total_l2_cache:              { label: 'L2 Cache',             group: 'Performance' },
+  // --- CPU Performance v2 additions (2026-05-26 audit) ---
+  processor_base_frequency:    { label: 'Base Frequency',       group: 'Performance' },
+  tech_intel_hyper_threading_technology: { label: 'Hyper-Threading', group: 'Performance' },
+  tech_intel_turbo_boost_technology:     { label: 'Turbo Boost',     group: 'Performance' },
+  tech_instruction_set_extensions:       { label: 'Instruction Set Extensions', group: 'Performance' },
+  tech_amd_smart_access_memory:          { label: 'AMD Smart Access Memory', group: 'Performance' },
+  tech_amd_ryzen_ai:                     { label: 'AMD Ryzen AI',    group: 'Performance' },
 
   // --- Memory ---
   memory_max_memory_size:           { label: 'Max Memory',         group: 'Memory' },
   memory_memory_types:              { label: 'Memory Types',       group: 'Memory' },
   memory_max_num_of_memory_channels:{ label: 'Memory Channels',    group: 'Memory' },
   memory_ecc_memory_supported:      { label: 'ECC Support',        group: 'Memory' },
+  memory_max_memory_bandwidth:      { label: 'Memory Bandwidth',   group: 'Memory' },
+  // PCIe + bus -- folded into Memory group (interconnect/IO)
+  expansion_max_num_of_pci_express_lanes: { label: 'PCIe Lanes',          group: 'Memory' },
+  expansion_pci_express_revision:         { label: 'PCIe Revision',       group: 'Memory' },
+  bus_speed:                              { label: 'Bus Speed',           group: 'Memory' },
 
   // --- GPU (integrated) ---
   gpu_gpu_name:           { label: 'Integrated Graphics', group: 'Integrated GPU' },
   gpu_graphics_base_frequency: { label: 'iGPU Base',      group: 'Integrated GPU' },
   gpu_graphics_max_dynamic_frequency: { label: 'iGPU Max', group: 'Integrated GPU' },
+  // CPU iGPU v2 additions (2026-05-26 audit)
+  gpu_execution_units:    { label: 'Execution Units',  group: 'Integrated GPU' },
+  gpu_intel_quick_sync_video: { label: 'Quick Sync',   group: 'Integrated GPU' },
+  gpu_directx_support:    { label: 'DirectX',          group: 'Integrated GPU' },
+  gpu_opengl_support:     { label: 'OpenGL',           group: 'Integrated GPU' },
+  gpu_max_resolution:     { label: 'Max Resolution',   group: 'Integrated GPU' },
+  gpu_graphics_output:    { label: 'Display Outputs',  group: 'Integrated GPU' },
+  gpu_4k_support:         { label: '4K Support',       group: 'Integrated GPU' },
 
   // --- Power ---
   processor_base_power: { label: 'Base Power',     group: 'Power' },
   maximum_turbo_power:  { label: 'Max Turbo Power', group: 'Power' },
+  tdp:                  { label: 'TDP',            group: 'Power' },  // AMD canonical (2026-05-26 audit)
 
   // --- Manufacturing ---
   lithography:          { label: 'Lithography',     group: 'Manufacturing' },
+  package_max_operating_temperature: { label: 'Max Operating Temp', group: 'Manufacturing' },
 
   /* ===================================================================
      MONITOR vertical (monitor entity_type) -- LG + ASUS source
@@ -461,34 +488,56 @@ const ATTR_ORDER: Record<string, number> = {
   processor_number: 1,
   vertical_segment: 2,
   product_collection: 3,
-  codename: 4,
+  code_name: 4,
   package_sockets_supported: 5,
   launch_date: 6,
+  release_quarter: 6.5,
   // Performance (CPU) -- order so cores appear before frequencies before cache
   total_cores: 10,
   num_of_performance_cores: 11,
   num_of_efficient_cores: 12,
   total_threads: 13,
+  processor_base_frequency: 14,
   max_turbo_frequency: 20,
   performance_core_max_turbo_frequency: 21,
   efficient_core_max_turbo_frequency: 22,
   performance_core_base_frequency: 23,
   efficient_core_base_frequency: 24,
+  // tech_* keys after frequencies + cache
+  tech_intel_hyper_threading_technology: 30,
+  tech_intel_turbo_boost_technology: 31,
+  tech_instruction_set_extensions: 32,
+  tech_amd_smart_access_memory: 33,
+  tech_amd_ryzen_ai: 34,
   // cache fields after frequencies
   // Memory (CPU)
   memory_max_memory_size: 10,
   memory_memory_types: 11,
   memory_max_num_of_memory_channels: 12,
   memory_ecc_memory_supported: 13,
+  memory_max_memory_bandwidth: 14,
+  // PCIe + bus in Memory group, ordered after memory specs
+  expansion_max_num_of_pci_express_lanes: 20,
+  expansion_pci_express_revision: 21,
+  bus_speed: 22,
   // Integrated GPU
   gpu_gpu_name: 1,
   gpu_graphics_base_frequency: 2,
   gpu_graphics_max_dynamic_frequency: 3,
+  gpu_execution_units: 4,
+  gpu_intel_quick_sync_video: 5,
+  gpu_directx_support: 6,
+  gpu_opengl_support: 7,
+  gpu_max_resolution: 8,
+  gpu_graphics_output: 9,
+  gpu_4k_support: 10,
   // Power (CPU)
   processor_base_power: 10,
   maximum_turbo_power: 11,
+  tdp: 12,  // AMD canonical; renders alongside processor_base_power if both somehow present (shouldn't)
   // Manufacturing
   lithography: 10,
+  package_max_operating_temperature: 11,
 
   // ---- MONITOR ----
   // Display
