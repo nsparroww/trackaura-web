@@ -203,6 +203,8 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   // --- Manufacturing ---
   lithography:          { label: 'Lithography',     group: 'Manufacturing' },
   package_max_operating_temperature: { label: 'Max Operating Temp', group: 'Manufacturing' },
+  operation_temperature: { label: 'Operating Temperature', group: 'Manufacturing' },  // ASUS monitor (2026-05-26)
+  operation_humidity:    { label: 'Operating Humidity',    group: 'Manufacturing' },  // ASUS monitor (2026-05-26)
 
   /* ===================================================================
      MONITOR vertical (monitor entity_type) -- LG + ASUS source
@@ -273,6 +275,10 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   flicker_safe:              { label: 'Flicker-Free',           group: 'Image Quality' },
   low_blue_light:            { label: 'Low Blue Light',         group: 'Image Quality' },
   dynamic_contrast_ratio:    { label: 'Dynamic Contrast Ratio', group: 'Image Quality' },
+  // --- ASUS-specific image quality (2026-05-26 audit) ---
+  gamma_adjustment:          { label: 'Gamma Adjustment',   group: 'Image Quality' },
+  color_accuracy:            { label: 'Color Accuracy (ΔE)', group: 'Image Quality' },
+  color_adjustment:          { label: 'Color Adjustment',   group: 'Image Quality' },
 
   // --- Features ---
   vrr:                    { label: 'Variable Refresh Rate', group: 'Features' },
@@ -298,7 +304,7 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   proximity_sensor:       { label: 'Proximity Sensor',      group: 'Features' },
   embedded_colorimeter:   { label: 'Embedded Colorimeter',  group: 'Features' },
   ergonomic:              { label: 'Ergonomic Design',      group: 'Features' },
-  ai_assistant:           { label: 'AI Assistant',          group: 'Features' },
+  a_i_assistant_technology: { label: 'AI Assistant Technology', group: 'Features' },  // ASUS canonical (2026-05-26 audit)
   ddc_ci:                 { label: 'DDC/CI',                group: 'Features' },
   plug_play:              { label: 'Plug & Play',           group: 'Features' },
   f_engine:               { label: 'F-Engine',              group: 'Features' },
@@ -307,6 +313,19 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   key_lock:               { label: 'Key Lock',              group: 'Features' },
   osd_lock:               { label: 'OSD Lock',              group: 'Features' },
   game_mode:              { label: 'Game Mode',             group: 'Features' },
+  // --- ASUS-specific features (2026-05-26 audit) ---
+  quickfit:               { label: 'QuickFit',              group: 'Features' },
+  quickfit_plus:          { label: 'QuickFit Plus',         group: 'Features' },
+  displaywidget:          { label: 'DisplayWidget',         group: 'Features' },
+  splendid_technology:    { label: 'Splendid',              group: 'Features' },
+  eye_care_technology:    { label: 'Eye Care',              group: 'Features' },
+  motion_sync:            { label: 'Motion Sync',           group: 'Features' },
+  asus_power_sync:        { label: 'ASUS Power Sync',       group: 'Features' },
+  hdr_preview:            { label: 'HDR Preview',           group: 'Features' },
+  proart_preset:          { label: 'ProArt Preset',         group: 'Features' },
+  proart_palette:         { label: 'ProArt Palette',        group: 'Features' },
+  proart_chroma_tune:     { label: 'ProArt Chroma Tune',    group: 'Features' },
+  antibacterial_treatment: { label: 'Antibacterial Treatment', group: 'Features' },
   // LG canonical features (2026-05-26)
   black_stabilizer:       { label: 'Black Stabilizer',      group: 'Features' },
   dynamic_action_sync:    { label: 'Dynamic Action Sync',   group: 'Features' },
@@ -401,6 +420,9 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   front_color:                  { label: 'Front Color',                group: 'Physical' },
   stand_color:                  { label: 'Stand Color',                group: 'Physical' },
   back_cover_color:             { label: 'Back Cover Color',           group: 'Physical' },
+  // --- ASUS-specific physical features (2026-05-26 audit) ---
+  '1_4_tripod_socket':          { label: '1/4" Tripod Socket',         group: 'Physical' },
+  protection_glass:             { label: 'Protection Glass',           group: 'Physical' },
 
   // --- Software (LG) ---
   sw_dual_controller:      { label: 'Dual Controller',         group: 'Software' },
@@ -426,6 +448,7 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   country_of_origin:      { label: 'Country of Origin', group: 'Warranty' },
   compliance_ce:          { label: 'CE',                group: 'Warranty' },
   compliance_rohs:        { label: 'RoHS',              group: 'Warranty' },
+  lcd_zbd_warranty:       { label: 'LCD ZBD Warranty',  group: 'Warranty' },  // ASUS (2026-05-26 audit)
 
   // --- Identity (release_year shares the existing Identity group) ---
   release_year:           { label: 'Release Year',      group: 'Identity' },
@@ -538,6 +561,8 @@ const ATTR_ORDER: Record<string, number> = {
   // Manufacturing
   lithography: 10,
   package_max_operating_temperature: 11,
+  operation_temperature: 20,  // ASUS monitor (2026-05-26)
+  operation_humidity: 21,
 
   // ---- MONITOR ----
   // Display
@@ -579,6 +604,10 @@ const ATTR_ORDER: Record<string, number> = {
   flicker_safe: 14,
   low_blue_light: 15,
   dynamic_contrast_ratio: 16,
+  // ASUS-specific image quality (2026-05-26)
+  gamma_adjustment: 17,
+  color_accuracy: 18,
+  color_adjustment: 19,
   // Features
   vrr: 1,
   amd_freesync: 2,
@@ -604,6 +633,7 @@ const ATTR_ORDER: Record<string, number> = {
   embedded_colorimeter: 18,
   ergonomic: 19,
   ai_assistant: 20,
+  a_i_assistant_technology: 20.5,  // ASUS canonical
   ddc_ci: 21,
   plug_play: 22,
   f_engine: 23,
@@ -612,6 +642,19 @@ const ATTR_ORDER: Record<string, number> = {
   key_lock: 26,
   osd_lock: 27,
   game_mode: 28,
+  // ASUS-specific features (2026-05-26 audit) -- trailing the existing set
+  quickfit: 50,
+  quickfit_plus: 51,
+  displaywidget: 52,
+  splendid_technology: 53,
+  eye_care_technology: 54,
+  motion_sync: 55,
+  asus_power_sync: 56,
+  hdr_preview: 57,
+  proart_preset: 58,
+  proart_palette: 59,
+  proart_chroma_tune: 60,
+  antibacterial_treatment: 61,
   // LG canonical features (alphabetical-ish trailing the existing set)
   black_stabilizer: 30,
   dynamic_action_sync: 31,
@@ -698,6 +741,9 @@ const ATTR_ORDER: Record<string, number> = {
   front_color: 7,
   stand_color: 8,
   back_cover_color: 9,
+  // ASUS-specific physical features (2026-05-26)
+  '1_4_tripod_socket': 10,
+  protection_glass: 11,
   // Software (LG)
   sw_onscreen_control: 1,
   sw_dual_controller: 2,
@@ -720,6 +766,7 @@ const ATTR_ORDER: Record<string, number> = {
   upc: 3,
   compliance_ce: 10,
   compliance_rohs: 11,
+  lcd_zbd_warranty: 12,  // ASUS (2026-05-26)
   // Identity (monitor) -- offset clear of the CPU Identity keys (1-6)
   release_year: 20,
   product_family: 21,
