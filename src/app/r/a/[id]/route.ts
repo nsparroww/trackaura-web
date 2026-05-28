@@ -100,7 +100,7 @@ export async function GET(
         destination = `https://www.trackaura.com/product/${alert.product_slug}`;
     } else {
         const { data: product } = await admin
-            .from('canonical_products')
+            .from('products')
             .select('url')
             .eq('slug', alert.product_slug)
             .maybeSingle();
