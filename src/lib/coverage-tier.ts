@@ -1,4 +1,4 @@
-import type { CoverageTier } from '@/lib/queries/entity';
+﻿import type { CoverageTier } from '@/lib/queries/entity';
 
 /* ---------------------------------------------------------------------
    coverage-tier.ts
@@ -9,6 +9,15 @@ import type { CoverageTier } from '@/lib/queries/entity';
      - EntityChildren.tsx  (per-row badge in chip's children grid)
      - EntityPage.tsx      (stats tile copy + amber-callout copy)
 
+   Confidence-ladder migration (WORTH_ENGINE_SPEC Sec 5, shipped when the
+   worth score landed): tier is now derived from worth CONFIDENCE, not raw
+   fresh-retailer count (queries/entity.ts:classifyCoverageTier). Labels are
+   therefore confidence-framed and count-free -- a 3-retailer board at 0.70
+   confidence is "Moderate confidence", not "3+ retailers", so the badge
+   agrees with EntityWorth's band on the same page. The true retailer count
+   still appears as EVIDENCE in EntityListings' subtext line; the badge is
+   the VERDICT. Count as evidence, confidence as verdict -- they coexist.
+
    Future copy/color changes land here only. The data layer in
    queries/entity.ts owns the classification; this file owns presentation.
    --------------------------------------------------------------------- */
@@ -18,16 +27,15 @@ export type CoverageTierTone = 'emerald' | 'amber' | 'zinc';
 export type CoverageTierDisplay = {
   /** Compact label for tight spaces (children-grid badges). 1-3 words. */
   shortLabel: string;
-  /** Longer label for leaf-page header bars - includes count framing. */
+  /** Longer label for leaf-page header bars. Confidence-framed, count-free. */
   fullLabel: string;
   /** Visual tone:
-        emerald = positive trust signal (multi-retailer comparison sound)
-        amber   = caution (single-source, no comparison being made)
+        emerald = positive trust signal (high/moderate confidence)
+        amber   = caution (limited confidence, thin evidence)
         zinc    = neutral (no current retail, reference-only). */
   tone: CoverageTierTone;
-  /** True when the page can honestly use "Lowest current" framing (>=2
-      retailers being compared). single_source/historical/encyclopedic_only
-      drop the comparison framing - there's nothing to compare. */
+  /** True when the page can honestly use "Lowest current" framing. Limited
+      confidence / historical / encyclopedic_only drop the comparison framing. */
   allowsComparisonFraming: boolean;
 };
 
@@ -37,22 +45,22 @@ export function getCoverageTierDisplay(
   switch (tier) {
     case 'well_tracked':
       return {
-        shortLabel: 'Well tracked',
-        fullLabel: 'Well tracked  -  3+ retailers',
+        shortLabel: 'High confidence',
+        fullLabel: 'High confidence',
         tone: 'emerald',
         allowsComparisonFraming: true,
       };
     case 'tracked':
       return {
-        shortLabel: 'Tracked',
-        fullLabel: 'Tracked  -  2 retailers',
+        shortLabel: 'Moderate confidence',
+        fullLabel: 'Moderate confidence',
         tone: 'emerald',
         allowsComparisonFraming: true,
       };
     case 'single_source':
       return {
-        shortLabel: 'Single source',
-        fullLabel: 'Single source  -  1 retailer',
+        shortLabel: 'Limited confidence',
+        fullLabel: 'Limited confidence',
         tone: 'amber',
         allowsComparisonFraming: false,
       };

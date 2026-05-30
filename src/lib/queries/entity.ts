@@ -421,7 +421,25 @@ function countFreshRetailersFromListings(
 function classifyCoverageTier(
   freshRetailerCount: number,
   hasPriceHistory: boolean,
+  worthConfidence: number | null,
 ): CoverageTier {
+  /* Confidence-ladder (WORTH_ENGINE_SPEC Sec 5): when a publishable worth
+     estimate exists, tier derives from its CONFIDENCE, not raw retailer
+     count -- so the listings badge agrees with the EntityWorth band on the
+     same page. The publishable floor (0.35) guarantees the historical/
+     encyclopedic tiers are unreachable while worth is present; those remain
+     for the worth-null case below.
+       >= 0.75  well_tracked   (high confidence)
+       >= 0.55  tracked        (moderate)
+       <  0.55  single_source  (limited; floor keeps it >= 0.35) */
+  if (worthConfidence != null) {
+    if (worthConfidence >= 0.75) return 'well_tracked';
+    if (worthConfidence >= 0.55) return 'tracked';
+    return 'single_source';
+  }
+  /* Worth null (below floor, or no observations): fall back to the
+     retailer-count + history classifier. EntityWorth renders nothing in
+     this case, so no badge/band contradiction is possible here. */
   if (freshRetailerCount >= 3) return 'well_tracked';
   if (freshRetailerCount === 2) return 'tracked';
   if (freshRetailerCount === 1) return 'single_source';
@@ -814,7 +832,15 @@ export async function getEntityViewModel(
         ownListings.map((l) => l.id),
       );
     }
-    coverageTier = classifyCoverageTier(freshRetailerCount, hasPriceHistory);
+    const leafConfidence =
+      entity.worth_estimate != null && entity.worth_confidence != null
+        ? Number(entity.worth_confidence)
+        : null;
+    coverageTier = classifyCoverageTier(
+      freshRetailerCount,
+      hasPriceHistory,
+      leafConfidence,
+    );
   }
 
   console.log(
@@ -876,7 +902,7 @@ async function fetchChildren(
 ): Promise<EntityChild[]> {
   const { data: rawChildren, error: childErr } = await supabase
     .from('canonical_entities')
-    .select('id, slug, canonical_name, display_name, brand, image_primary_url, entity_type')
+    .select('id, slug, canonical_name, display_name, brand, image_primary_url, entity_type, worth_confidence')
     .eq('parent_entity_id', parentId)
     .eq('entity_type', childType);
 
@@ -974,7 +1000,13 @@ async function fetchChildren(
 
     const childFresh = countFreshRetailersFromListings(lst);
     const childHasHistory = lst.length > 0;
-    const childTier = classifyCoverageTier(childFresh, childHasHistory);
+    const childConfidence =
+      c.worth_confidence != null ? Number(c.worth_confidence) : null;
+    const childTier = classifyCoverageTier(
+      childFresh,
+      childHasHistory,
+      childConfidence,
+    );
 
     return {
       id: String(c.id),
