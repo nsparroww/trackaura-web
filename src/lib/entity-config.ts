@@ -110,10 +110,11 @@ export type EntityType =
   | 'cpu_microarch'
   | 'monitor'
   | 'lego_set'
-  | 'lego_theme';
+  | 'lego_theme'
+  | 'motherboard';
 
 /** All category slugs (drive /c/[slug] and category breadcrumbs). */
-export type CategorySlug = 'gpus' | 'cpus' | 'monitors' | 'lego-sets';
+export type CategorySlug = 'gpus' | 'cpus' | 'monitors' | 'lego-sets' | 'motherboards';
 
 /** Regex-driven slug-form rewrite. Use for marketing-form to canonical-form
     equivalences that don't fit prefix-prepend semantics. Pattern is matched
@@ -256,6 +257,26 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     // 308 to that form -- mirrors the GPU-chip pattern.
     cleanSlugBrandPrefixes: ['lg-', 'asus-'],
   },
+  /* 2026-05-30 amendment (motherboard vertical wiring; VERTICALBACKLOG #3):
+     - 'motherboard' = 1-level leaf vertical (no parent, no children) --
+       Home / Motherboards / Item. Catalog seeded from existing retailer
+       scrapes (1,466 boards), not a new catalog source -- provenance is
+       the listings table, same as GPU boards (Bible Section 5).
+     - cleanSlugBrandPrefixes [] -- committed DB slugs are double-brand-
+       prefixed (msi-msi-..., asus-asus-...) because raw titles lead with
+       the brand; URL = DB slug, GPU-board precedent. Clean-slug is
+       Phase-0.5 polish, not a vertical blocker.
+     - socket is the price-defining attribute and the CPU-relationship
+       axis; chipset/form_factor are display attributes. */
+  motherboard: {
+    routePrefix: '/motherboard',
+    label: 'Motherboard',
+    pluralLabel: 'Motherboards',
+    childEntityType: null,
+    parentEntityType: null,
+    category: 'motherboards',
+    cleanSlugBrandPrefixes: [],
+  },
   /* 2026-05-19 amendment (Phase 1 LEGO collectibles vertical):
      - 'lego_theme' = branch entity, parents 'lego_set' (and other
        lego_themes via parent_entity_id self-reference). Three-level
@@ -321,6 +342,12 @@ export const CATEGORIES: Record<CategorySlug, CategoryConfig> = {
     topEntityType: 'monitor',
     provenance:
       'Catalog data from LG and ASUS manufacturer specification pages. Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
+  },
+  motherboards: {
+    label: 'Motherboards',
+    topEntityType: 'motherboard',
+    provenance:
+      'Catalog normalized from Canadian retailer listings. Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
   },
   'lego-sets': {
     label: 'LEGO Sets',

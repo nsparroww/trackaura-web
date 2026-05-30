@@ -450,6 +450,21 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   compliance_rohs:        { label: 'RoHS',              group: 'Warranty' },
   lcd_zbd_warranty:       { label: 'LCD ZBD Warranty',  group: 'Warranty' },  // ASUS (2026-05-26 audit)
 
+  /* ===================================================================
+     MOTHERBOARD vertical (motherboard entity_type) -- retailer-seeded
+     Keys emitted by scripts/ingest_motherboards.py. socket is
+     price-defining + the CPU-relationship axis; chipset/form_factor are
+     identity; memory/pcie/m2_slots/wifi are supporting. Values are clean
+     text (socket/chipset/form_factor normalized at ingest); no formatters.
+     =================================================================== */
+  socket:      { label: 'Socket',         group: 'Motherboard' },
+  chipset:     { label: 'Chipset',        group: 'Motherboard' },
+  form_factor: { label: 'Form Factor',    group: 'Motherboard' },
+  memory:      { label: 'Memory Support', group: 'Motherboard' },
+  pcie:        { label: 'PCIe',           group: 'Motherboard' },
+  m2_slots:    { label: 'M.2 Slots',      group: 'Motherboard' },
+  wifi:        { label: 'Wi-Fi',          group: 'Motherboard' },
+
   // --- Identity (release_year shares the existing Identity group) ---
   release_year:           { label: 'Release Year',      group: 'Identity' },
   product_family:         { label: 'Product Family',    group: 'Identity' },
@@ -460,6 +475,8 @@ export const GROUP_ORDER = [
   'Chip',
   // CPU groups (interleave Identity above Performance for both verticals)
   'Identity',
+  // Motherboard platform group
+  'Motherboard',
   // Monitor display-side groups
   'Display',
   'Image Quality',
@@ -770,6 +787,14 @@ const ATTR_ORDER: Record<string, number> = {
   // Identity (monitor) -- offset clear of the CPU Identity keys (1-6)
   release_year: 20,
   product_family: 21,
+  // ---- MOTHERBOARD ----
+  socket: 1,
+  chipset: 2,
+  form_factor: 3,
+  memory: 4,
+  pcie: 5,
+  m2_slots: 6,
+  wifi: 7,
 };
 
 // Ordering note: the CPU 'cache' and 'total_l2_cache' keys aren't in
