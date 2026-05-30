@@ -111,10 +111,11 @@ export type EntityType =
   | 'monitor'
   | 'lego_set'
   | 'lego_theme'
-  | 'motherboard';
+  | 'motherboard'
+  | 'ram_kit';
 
 /** All category slugs (drive /c/[slug] and category breadcrumbs). */
-export type CategorySlug = 'gpus' | 'cpus' | 'monitors' | 'lego-sets' | 'motherboards';
+export type CategorySlug = 'gpus' | 'cpus' | 'monitors' | 'lego-sets' | 'motherboards' | 'ram';
 
 /** Regex-driven slug-form rewrite. Use for marketing-form to canonical-form
     equivalences that don't fit prefix-prepend semantics. Pattern is matched
@@ -148,8 +149,8 @@ export type EntityTypeConfig = {
       must themselves resolve via either exact-match or brand-prefix
       fallback. */
   shortSlugAliases?: Readonly<Record<string, string>>;
-  /** When true, this entity type — shown as a child in its parent's grid
-      (EntityChildren) — falls back to the parent's image when it has no
+  /** When true, this entity type â€” shown as a child in its parent's grid
+      (EntityChildren) â€” falls back to the parent's image when it has no
       own image_primary_url. Set for entity types whose siblings share the
       parent's appearance (CPUs: one physical package per microarch). Left
       unset for visually-distinct children (GPU boards differ AIB-to-AIB,
@@ -222,7 +223,7 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     parentEntityType: 'cpu_microarch',
     category: 'cpus',
     cleanSlugBrandPrefixes: ['intel-', 'amd-'],
-    /* CPUs under one microarchitecture are the same physical package —
+    /* CPUs under one microarchitecture are the same physical package â€”
        the microarch image is the honest hero image. Drives the
        parent-image fallback in entity.ts fetchChildren. */
     gridImageInheritsParent: true,
@@ -275,6 +276,26 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     childEntityType: null,
     parentEntityType: null,
     category: 'motherboards',
+    cleanSlugBrandPrefixes: [],
+  },
+  /* 2026-05-30 amendment (RAM vertical wiring; VERTICALBACKLOG #4):
+     - 'ram_kit' = 1-level leaf vertical (no parent, no children) --
+       Home / Memory / Item. Catalog seeded from existing retailer scrapes
+       (1,746 kits), not a new catalog source -- provenance is the listings
+       table, same as GPU boards and motherboards (Bible Section 5).
+     - cleanSlugBrandPrefixes [] -- RAM slugs lead with brand by design
+       (corsair-vengeance-lpx-32gb-..., kingston-fury-beast-...); the brand
+       is load-bearing for disambiguation (vengeance-lpx alone is ambiguous
+       across makers). URL = DB slug, motherboard/GPU-board precedent.
+     - ddr_gen / speed / form_factor are price-defining; capacity / config /
+       cas_latency / mpn are display attributes. */
+  ram_kit: {
+    routePrefix: '/ram',
+    label: 'Memory Kit',
+    pluralLabel: 'Memory',
+    childEntityType: null,
+    parentEntityType: null,
+    category: 'ram',
     cleanSlugBrandPrefixes: [],
   },
   /* 2026-05-19 amendment (Phase 1 LEGO collectibles vertical):
@@ -346,6 +367,12 @@ export const CATEGORIES: Record<CategorySlug, CategoryConfig> = {
   motherboards: {
     label: 'Motherboards',
     topEntityType: 'motherboard',
+    provenance:
+      'Catalog normalized from Canadian retailer listings. Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
+  },
+  ram: {
+    label: 'Memory',
+    topEntityType: 'ram_kit',
     provenance:
       'Catalog normalized from Canadian retailer listings. Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
   },

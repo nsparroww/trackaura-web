@@ -55,6 +55,16 @@ import { createCatalogClient } from '@/lib/supabase/server';
    are kept inert in case the ASUS adapter emits them; they cost nothing
    when no row matches.
 
+   2026-05-30: RAM vertical (ram_kit entity_type) added. Keys emitted by
+   scripts/ingest_ram.py: ddr_gen / speed / form_factor are price-defining;
+   capacity / config / cas_latency / mpn are display. NOTE form_factor is
+   SHARED with the motherboard block (board form-factor and DIMM form-factor
+   are both genuinely "form factor"); its group was moved from 'Motherboard'
+   to the neutral 'Form Factor' so it reads correctly on BOTH a RAM page
+   (UDIMM/SODIMM) and a motherboard page (ATX/Micro-ATX) without a
+   per-vertical group lookup. The RAM-specific keys cluster under the
+   'Memory Kit' group.
+
    Cookie-free per Bible Protocol #37 (2026-05-15):
      fetchChipAttributes was the second cookies() callsite (alongside
      entity-slug.ts) keeping /chip /board /cpu /cpu-microarch from
@@ -238,8 +248,8 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
     group: 'Image Quality',
     format: (v, _num) => {
       if (!v) return '-';
-      // Older LG SKUs ship bare numbers ("300"); newer ship "275cd/m²" inline.
-      return /cd\s*\/?\s*m/i.test(v) ? v : `${v} cd/m²`;
+      // Older LG SKUs ship bare numbers ("300"); newer ship "275cd/mÂ²" inline.
+      return /cd\s*\/?\s*m/i.test(v) ? v : `${v} cd/mÂ²`;
     },
   },
   brightness_min_cd_m2: {
@@ -247,12 +257,12 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
     group: 'Image Quality',
     format: (v, _num) => {
       if (!v) return '-';
-      return /cd\s*\/?\s*m/i.test(v) ? v : `${v} cd/m²`;
+      return /cd\s*\/?\s*m/i.test(v) ? v : `${v} cd/mÂ²`;
     },
   },
   // brightness_summary is an alternative form, NOT a duplicate of typ/min.
   // Older LG template ships "Brightness" as a single combined row
-  // ("200 cd/m² (Typ.), 160 (Min.)") instead of decomposed typ/min rows.
+  // ("200 cd/mÂ² (Typ.), 160 (Min.)") instead of decomposed typ/min rows.
   // 27GR75Q-B is summary-only. Surfacing it preserves the data; the
   // formatting awkwardness is LG's, not ours.
   brightness_summary:        { label: 'Brightness',             group: 'Image Quality' },
@@ -277,7 +287,7 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   dynamic_contrast_ratio:    { label: 'Dynamic Contrast Ratio', group: 'Image Quality' },
   // --- ASUS-specific image quality (2026-05-26 audit) ---
   gamma_adjustment:          { label: 'Gamma Adjustment',   group: 'Image Quality' },
-  color_accuracy:            { label: 'Color Accuracy (ΔE)', group: 'Image Quality' },
+  color_accuracy:            { label: 'Color Accuracy (Î”E)', group: 'Image Quality' },
   color_adjustment:          { label: 'Color Adjustment',   group: 'Image Quality' },
 
   // --- Features ---
@@ -404,7 +414,7 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   weight_with_stand:            { label: 'Weight (with stand)',        group: 'Physical' },
   weight_without_stand:         { label: 'Weight (without stand)',     group: 'Physical' },
   weight_shipping:              { label: 'Weight (shipping)',          group: 'Physical' },
-  // LG canonical (2026-05-26) — unit-suffixed
+  // LG canonical (2026-05-26) â€” unit-suffixed
   dimensions_with_stand_mm:     { label: 'Dimensions (with stand)',    group: 'Physical' },
   dimensions_without_stand_mm:  { label: 'Dimensions (without stand)', group: 'Physical' },
   dimensions_shipping_mm:       { label: 'Dimensions (shipping)',      group: 'Physical' },
@@ -453,17 +463,48 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   /* ===================================================================
      MOTHERBOARD vertical (motherboard entity_type) -- retailer-seeded
      Keys emitted by scripts/ingest_motherboards.py. socket is
-     price-defining + the CPU-relationship axis; chipset/form_factor are
-     identity; memory/pcie/m2_slots/wifi are supporting. Values are clean
-     text (socket/chipset/form_factor normalized at ingest); no formatters.
+     price-defining + the CPU-relationship axis; chipset is identity;
+     memory/pcie/m2_slots/wifi are supporting. form_factor moved to the
+     shared 'Form Factor' group (see RAM note in header) so it reads
+     correctly on both motherboard and RAM pages. Values are clean text
+     (socket/chipset/form_factor normalized at ingest); no formatters.
      =================================================================== */
   socket:      { label: 'Socket',         group: 'Motherboard' },
   chipset:     { label: 'Chipset',        group: 'Motherboard' },
-  form_factor: { label: 'Form Factor',    group: 'Motherboard' },
+  form_factor: { label: 'Form Factor',    group: 'Form Factor' },
   memory:      { label: 'Memory Support', group: 'Motherboard' },
   pcie:        { label: 'PCIe',           group: 'Motherboard' },
   m2_slots:    { label: 'M.2 Slots',      group: 'Motherboard' },
   wifi:        { label: 'Wi-Fi',          group: 'Motherboard' },
+
+  /* ===================================================================
+     RAM vertical (ram_kit entity_type) -- retailer-seeded
+     Keys emitted by scripts/ingest_ram.py. ddr_gen / speed / form_factor
+     are price-defining; capacity / config / cas_latency / mpn are display.
+     form_factor is shared with the motherboard block (neutral 'Form Factor'
+     group). speed renders as "MT/s"; capacity/config/cas_latency carry
+     their own readable text from the ingest.
+     =================================================================== */
+  ddr_gen:     { label: 'Memory Type',  group: 'Memory Kit' },
+  speed: {
+    label: 'Speed',
+    group: 'Memory Kit',
+    format: (v, num) => {
+      if (num != null) return `${Math.round(num)} MT/s`;
+      return v ? `${v} MT/s` : '-';
+    },
+  },
+  capacity: {
+    label: 'Capacity',
+    group: 'Memory Kit',
+    format: (v, num) => {
+      if (num != null) return `${Math.round(num)} GB`;
+      return v || '-';
+    },
+  },
+  config:      { label: 'Module Kit',   group: 'Memory Kit' },
+  cas_latency: { label: 'CAS Latency',  group: 'Memory Kit' },
+  mpn:         { label: 'Part Number',  group: 'Memory Kit' },
 
   // --- Identity (release_year shares the existing Identity group) ---
   release_year:           { label: 'Release Year',      group: 'Identity' },
@@ -477,6 +518,10 @@ export const GROUP_ORDER = [
   'Identity',
   // Motherboard platform group
   'Motherboard',
+  // RAM kit group (sits high -- it's the primary spec block for memory)
+  'Memory Kit',
+  // Shared form-factor group (motherboard ATX / RAM DIMM type)
+  'Form Factor',
   // Monitor display-side groups
   'Display',
   'Image Quality',
@@ -795,6 +840,14 @@ const ATTR_ORDER: Record<string, number> = {
   pcie: 5,
   m2_slots: 6,
   wifi: 7,
+  // ---- RAM ----
+  // Memory Kit group (capacity -> config -> type -> speed -> CL -> MPN)
+  capacity: 1,
+  config: 2,
+  ddr_gen: 3,
+  speed: 4,
+  cas_latency: 5,
+  mpn: 6,
 };
 
 // Ordering note: the CPU 'cache' and 'total_l2_cache' keys aren't in
