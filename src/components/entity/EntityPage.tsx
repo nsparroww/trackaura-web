@@ -7,6 +7,7 @@ import EntitySpecs from './EntitySpecs';
 import EntityChildren from './EntityChildren';
 import EntityListings from './EntityListings';
 import EntityLineage from './EntityLineage';
+import EntityWorth from './EntityWorth';
 import EntityPriceSummary from './EntityPriceSummary';
 import PriceChart from '@/components/PriceChart';
 import ChipPriceChart from '@/components/ChipPriceChart';
@@ -391,6 +392,13 @@ export default function EntityPage({ entity }: Props) {
           highlight={hasCurrentPrices && priceTileCopy.highlight}
         />
       </section>
+
+      {/* Estimated worth - synthesized index with explicit confidence,
+          previously JSON-LD-only. Self-gates to null below the publishable
+          floor. Placed after the raw-fact stats strip and before specs so
+          the interpretive "what's it worth" answer sits between the facts
+          and the encyclopedic detail. */}
+      <EntityWorth entity={entity} />
 
       {/* Specs - own attributes plus inherited attributes from parent
           (leaves with parent only). Self-renders nothing when both lists
