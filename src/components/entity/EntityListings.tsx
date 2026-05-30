@@ -82,8 +82,16 @@ function tierSubtext(
     case 'well_tracked':
     case 'tracked':
       return `${freshRetailerCount} fresh retailer${freshRetailerCount === 1 ? '' : 's'} in last 48h`;
-    case 'single_source':
-      return '1 fresh retailer in last 48h - no comparison being made';
+    case 'single_source': {
+      // Reaches this tier two ways: literal N=1, or N>=2 at worth-confidence
+      // < 0.55 (WORTH_ENGINE_SPEC Sec 5). Never hardcode "1" - state the true
+      // count as evidence; the badge already carries the "limited confidence"
+      // verdict. Comparison framing is withheld either way.
+      if (freshRetailerCount <= 1) {
+        return '1 fresh retailer in last 48h - not enough to compare';
+      }
+      return `${freshRetailerCount} fresh retailers in last 48h - prices too dispersed to compare confidently`;
+    }
     case 'historical':
       return `${totalListings} listing${totalListings === 1 ? '' : 's'}, none observed in last 48h`;
     case 'encyclopedic_only':

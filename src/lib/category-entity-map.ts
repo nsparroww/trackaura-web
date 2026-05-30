@@ -133,9 +133,21 @@ export const CATEGORY_ENTITY_MAP: Record<string, CategoryEntityMapEntry> = {
     browseEntityType: 'lego_theme',
     browseRoutePrefix: '/theme',
   },
+  // Motherboards (Phase 0, 1-level leaf). Catalog ingested s47 (1,466
+  // boards), /motherboard/[slug] route live s47, worth/listings linked
+  // s48. Both Protocol #35 gates met. No browse override - landing lists
+  // the board leaves directly (mirrors monitors).
+  'motherboards': {
+    entityType: 'motherboard',
+    routePrefix: '/motherboard',
+  },
+  'mobos': {
+    entityType: 'motherboard',
+    routePrefix: '/motherboard',
+  },
+
   // Future entries go here as verticals migrate. Until then, /c/<slug>
   // for these falls through to the canonical_products v0 read path.
-  //   'motherboards': { entityType: 'mobo',    routePrefix: '/mobo' },
 };
 
 /**
