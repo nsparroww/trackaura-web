@@ -280,6 +280,45 @@ export function buildEntityProductLd(entity: EntityViewModel) {
     }));
   }
 
+  /* Worth estimate (WORTH_ENGINE_SPEC) as schema.org additionalProperty --
+     the machine-citable worth tuple /for-llms advertises. Emitted only when
+     a publishable estimate exists; absent (not null/empty) otherwise, so a
+     grounding pipeline never reads a worth claim the engine declined to make.
+     Independent of offers: worth is a synthesized index (median over recent
+     observations), offers are live retail listings -- different claims, kept
+     distinct. PropertyValue is schema.org's standard named-value container,
+     parsed natively by grounding consumers. worthAsOf carries the freshest
+     observation date so the as-of honesty (bible Section 6) survives caching. */
+  if (entity.worth) {
+    product.additionalProperty = [
+      {
+        '@type': 'PropertyValue',
+        propertyID: 'worth-estimate-cad',
+        name: 'Worth estimate (CAD)',
+        value: entity.worth.estimate,
+        unitText: 'CAD',
+      },
+      {
+        '@type': 'PropertyValue',
+        propertyID: 'worth-confidence',
+        name: 'Worth confidence (0-1)',
+        value: entity.worth.confidence,
+      },
+      {
+        '@type': 'PropertyValue',
+        propertyID: 'worth-source-tier',
+        name: 'Worth source tier',
+        value: entity.worth.sourceTier,
+      },
+      {
+        '@type': 'PropertyValue',
+        propertyID: 'worth-as-of',
+        name: 'Worth as-of date',
+        value: entity.worth.asOf,
+      },
+    ];
+  }
+
   const tier = entity.coverageTier;
 
   /* Branches and historical/encyclopedic leaves: no offers. Product

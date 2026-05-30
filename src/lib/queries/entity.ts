@@ -210,6 +210,25 @@ export type EntityStats = {
   lowestPriceCurrency: string | null;
 };
 
+/** Nightly-cached worth estimate (WORTH_ENGINE_SPEC). Persisted on the
+    listing-bearing entity by scripts/persist_worth.py; read straight from
+    canonical_entities columns here -- no render-time math. Null when the
+    worth engine returned no publishable estimate (below the confidence
+    floor, or no observations). Branches (chips) are always null: worth is
+    persisted on boards, not the abstract chip identity. */
+export type EntityWorth = {
+  /** CAD median worth estimate. */
+  estimate: number;
+  /** Confidence [0,1] from the worth engine. */
+  confidence: number;
+  /** 'W1' (live retail) | 'W2' (decayed history) in Phase 0. */
+  sourceTier: string;
+  /** Date of the freshest observation behind the estimate (NOT the
+      nightly write date) -- preserves the 'never silently today'
+      honesty even though the column is <=24h stale. */
+  asOf: string;
+};
+
 export type EntityViewModel = {
   id: string;
   entityType: EntityType;
@@ -293,6 +312,10 @@ export type EntityViewModel = {
       SUPER editions, or all the Ryzen 5 8000-series desktop SKUs.
       Empty array when no edges exist; ordered alphabetically. */
   variants: LineageItem[];
+
+  /** Nightly-cached worth estimate, or null when none is publishable.
+      Feeds tier-aware JSON-LD additionalProperty (bible Section 1 user 5). */
+  worth: EntityWorth | null;
 
   lastRefreshed: string;
 };
@@ -601,7 +624,7 @@ export async function getEntityViewModel(
     supabase
       .from('canonical_entities')
       .select(
-        'id, slug, canonical_name, display_name, brand, release_date, msrp_cad, msrp_currency, image_primary_url, description_md, entity_type, parent_entity_id',
+        'id, slug, canonical_name, display_name, brand, release_date, msrp_cad, msrp_currency, image_primary_url, description_md, entity_type, parent_entity_id, worth_estimate, worth_confidence, worth_source_tier, worth_as_of',
       )
       .eq('id', entityId)
       .maybeSingle(),
@@ -798,6 +821,18 @@ export async function getEntityViewModel(
     `[entity] id=${entityId} type=${expectedType} children=${children.length} listings=${ownListings.length} history=${priceHistory.length} attrs=${attributes.length} inherited=${inheritedAttributes.length} tier=${coverageTier ?? 'branch'} freshRetailers=${freshRetailerCount} imgInh=${imageInheritedFromName ?? 'no'} descInh=${descriptionInheritedFromName ?? 'no'} lineage=${lineage.predecessor ? 'pre' : '-'}/${lineage.successor ? 'suc' : '-'}`,
   );
 
+  /* Worth tuple straight off the cached columns. numeric/real may arrive
+     as strings via PostgREST, so coerce; null estimate -> null worth. */
+  const worth: EntityWorth | null =
+    entity.worth_estimate != null
+      ? {
+          estimate: Number(entity.worth_estimate),
+          confidence: Number(entity.worth_confidence),
+          sourceTier: String(entity.worth_source_tier),
+          asOf: String(entity.worth_as_of),
+        }
+      : null;
+
   return {
     id: String(entity.id),
     entityType: entity.entity_type as EntityType,
@@ -827,6 +862,7 @@ export async function getEntityViewModel(
     predecessor: lineage.predecessor,
     successor: lineage.successor,
     variants: lineage.variants,
+    worth,
     lastRefreshed: new Date().toISOString(),
   };
 }
