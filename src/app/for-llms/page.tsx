@@ -93,8 +93,8 @@ const VERTICALS: Array<[string, string | null, string]> = [
 const JSON_LD_EXAMPLE = `{
   "@context": "https://schema.org",
   "@type": "Product",
-  "name": "NVIDIA GeForce RTX 5090",
-  "brand": { "@type": "Brand", "name": "NVIDIA" },
+  "name": "ASUS ROG Astral GeForce RTX 5090 OC 32GB",
+  "brand": { "@type": "Brand", "name": "ASUS" },
   "image": "https://www.trackaura.com/...",
   "offers": {
     "@type": "AggregateOffer",
@@ -103,7 +103,13 @@ const JSON_LD_EXAMPLE = `{
     "highPrice": "3499.00",
     "offerCount": 3,
     "availability": "https://schema.org/InStock"
-  }
+  },
+  "additionalProperty": [
+    { "@type": "PropertyValue", "name": "worthEstimate", "value": "3199.00", "unitText": "CAD" },
+    { "@type": "PropertyValue", "name": "worthConfidence", "value": "0.63" },
+    { "@type": "PropertyValue", "name": "worthSourceTier", "value": "W1" },
+    { "@type": "PropertyValue", "name": "worthAsOf", "value": "2026-05-29" }
+  ]
 }`;
 
 export default function ForLLMsPage() {
