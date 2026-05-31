@@ -146,6 +146,18 @@ export const CATEGORY_ENTITY_MAP: Record<string, CategoryEntityMapEntry> = {
     routePrefix: '/motherboard',
   },
 
+﻿  // RAM kits (Phase 0, 1-level leaf). Catalog ingested s50 (1,746 kits),
+  // /ram/[slug] route live + prod-verified s51. Both Protocol #35 gates
+  // met. No browse override - landing lists the kit leaves directly.
+  'ram': {
+    entityType: 'ram_kit',
+    routePrefix: '/ram',
+  },
+  'memory': {
+    entityType: 'ram_kit',
+    routePrefix: '/ram',
+  },
+
   // Future entries go here as verticals migrate. Until then, /c/<slug>
   // for these falls through to the canonical_products v0 read path.
 };
