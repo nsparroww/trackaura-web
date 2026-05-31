@@ -112,10 +112,11 @@ export type EntityType =
   | 'lego_set'
   | 'lego_theme'
   | 'motherboard'
-  | 'ram_kit';
+  | 'ram_kit'
+  | 'ssd';
 
 /** All category slugs (drive /c/[slug] and category breadcrumbs). */
-export type CategorySlug = 'gpus' | 'cpus' | 'monitors' | 'lego-sets' | 'motherboards' | 'ram';
+export type CategorySlug = 'gpus' | 'cpus' | 'monitors' | 'lego-sets' | 'motherboards' | 'ram' | 'ssds';
 
 /** Regex-driven slug-form rewrite. Use for marketing-form to canonical-form
     equivalences that don't fit prefix-prepend semantics. Pattern is matched
@@ -298,6 +299,25 @@ export const ENTITY_TYPES: Record<EntityType, EntityTypeConfig> = {
     category: 'ram',
     cleanSlugBrandPrefixes: [],
   },
+  /* 2026-05-31 amendment (SSD vertical wiring; VERTICALBACKLOG #5):
+     - 'ssd' = 1-level leaf vertical (no parent, no children) --
+       Home / SSDs / Item. Catalog seeded from existing retailer scrapes
+       (580 drives), not a new catalog source -- provenance is the listings
+       table, same as motherboards and RAM (Bible Section 5).
+     - cleanSlugBrandPrefixes [] -- SSD slugs lead with brand by design;
+       brand is load-bearing (sn850x is WD-specific, capacity/form-factor
+       disambiguate within a line); URL = DB slug, RAM/mobo precedent.
+     - capacity / form_factor / interface are price-defining; read_speed /
+       mpn are display attributes. */
+  ssd: {
+    routePrefix: '/ssd',
+    label: 'SSD',
+    pluralLabel: 'SSDs',
+    childEntityType: null,
+    parentEntityType: null,
+    category: 'ssds',
+    cleanSlugBrandPrefixes: [],
+  },
   /* 2026-05-19 amendment (Phase 1 LEGO collectibles vertical):
      - 'lego_theme' = branch entity, parents 'lego_set' (and other
        lego_themes via parent_entity_id self-reference). Three-level
@@ -373,6 +393,12 @@ export const CATEGORIES: Record<CategorySlug, CategoryConfig> = {
   ram: {
     label: 'Memory',
     topEntityType: 'ram_kit',
+    provenance:
+      'Catalog normalized from Canadian retailer listings. Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
+  },
+  ssds: {
+    label: 'SSDs',
+    topEntityType: 'ssd',
     provenance:
       'Catalog normalized from Canadian retailer listings. Prices observed from Canadian retailers and refreshed daily. Current price = most recent observation per listing within the last 7 days.',
   },

@@ -506,6 +506,28 @@ export const ATTRIBUTE_CONFIG: Record<string, AttrCfg> = {
   cas_latency: { label: 'CAS Latency',  group: 'Memory Kit' },
   mpn:         { label: 'Part Number',  group: 'Memory Kit' },
 
+  /* ===================================================================
+     SSD vertical (ssd entity_type) -- retailer-seeded
+     Keys emitted by scripts/ingest_ssd.py. ssd_capacity / ssd_mpn are
+     SSD-namespaced because bare capacity/mpn are RAM-owned in this global
+     config (one group + one format per key). form_factor is the shared
+     key (Form Factor group, reads M.2 2280 / 2.5" on an SSD page).
+     interface/read_speed are SSD-only. capacity arrives as clean text
+     ("1TB"/"500GB"); the formatter prefers it, falling back to GB on num.
+     =================================================================== */
+  ssd_capacity: {
+    label: 'Capacity',
+    group: 'Storage',
+    format: (v, num) => v || (num != null ? `${Math.round(num)} GB` : '-'),
+  },
+  interface: { label: 'Interface', group: 'Storage' },
+  read_speed: {
+    label: 'Read Speed',
+    group: 'Storage',
+    format: (v, num) => (num != null ? `${Math.round(num)} MB/s` : (v || '-')),
+  },
+  ssd_mpn: { label: 'Part Number', group: 'Storage' },
+
   // --- Identity (release_year shares the existing Identity group) ---
   release_year:           { label: 'Release Year',      group: 'Identity' },
   product_family:         { label: 'Product Family',    group: 'Identity' },
@@ -520,6 +542,8 @@ export const GROUP_ORDER = [
   'Motherboard',
   // RAM kit group (sits high -- it's the primary spec block for memory)
   'Memory Kit',
+  // SSD spec block
+  'Storage',
   // Shared form-factor group (motherboard ATX / RAM DIMM type)
   'Form Factor',
   // Monitor display-side groups
@@ -848,6 +872,12 @@ const ATTR_ORDER: Record<string, number> = {
   speed: 4,
   cas_latency: 5,
   mpn: 6,
+  // ---- SSD ----
+  // Storage group (capacity -> interface -> read speed -> part number)
+  ssd_capacity: 1,
+  interface: 2,
+  read_speed: 3,
+  ssd_mpn: 5,
 };
 
 // Ordering note: the CPU 'cache' and 'total_l2_cache' keys aren't in
